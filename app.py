@@ -5,120 +5,75 @@ import pickle
 from rdkit import Chem
 from rdkit.Chem import AllChem
 import plotly.express as px
+import requests
+from streamlit_lottie import st_lottie
 
 # --- PAGE CONFIGURATION ---
-st.set_page_config(
-    page_title="NeuroBACE-ML | BACE1 Platform",
-    page_icon="🧠",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+st.set_page_config(page_title="NeuroBACE-ML", page_icon="🧠", layout="wide")
 
-# --- ADVANCED CUSTOM STYLING (The Beauty Overhaul) ---
-st.markdown("""
+# --- THEME TOGGLE LOGIC ---
+if 'theme' not in st.session_state:
+    st.session_state.theme = 'Dark'
+
+theme_choice = st.sidebar.radio("Appearance Mode", ["Dark", "Light"], horizontal=True)
+st.session_state.theme = theme_choice
+
+# --- DYNAMIC CSS FOR THEME SWITCHING ---
+if st.session_state.theme == 'Dark':
+    bg_color, text_color, card_bg, accent = "#0f172a", "#f8fafc", "#1e293b", "#38bdf8"
+    plotly_template = "plotly_dark"
+else:
+    bg_color, text_color, card_bg, accent = "#ffffff", "#0f172a", "#f1f5f9", "#2563eb"
+    plotly_template = "plotly_white"
+
+st.markdown(f"""
     <style>
-    /* Gradient Header and Background */
-    .stApp {
-        background: linear-gradient(to bottom, #0f172a, #1e293b);
-        color: #f8fafc;
-    }
-    
-    /* Clean Sidebar */
-    section[data-testid="stSidebar"] {
-        background-color: #0f172a !important;
-        border-right: 1px solid #334155;
-    }
-    
-    /* Elegant Title and Subheaders */
-    h1, h2, h3 {
-        color: #38bdf8 !important;
-        font-family: 'Inter', sans-serif;
-        font-weight: 700;
-    }
-    
-    /* Modern Button Styling */
-    .stButton>button {
-        background: linear-gradient(90deg, #0ea5e9 0%, #2563eb 100%);
-        color: white;
-        border: none;
-        padding: 12px 24px;
-        border-radius: 8px;
-        font-weight: bold;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    }
-    .stButton>button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
-        color: #ffffff;
-    }
-    
-    /* Remove Metric Boxes Clutter */
-    [data-testid="stMetric"] {
-        background-color: #1e293b !important;
-        border: 1px solid #334155 !important;
-        border-radius: 12px;
-        padding: 20px !important;
-    }
-    
-    /* Tab Styling */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 24px;
-        background-color: transparent;
-    }
-    .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        background-color: #1e293b;
-        border-radius: 8px 8px 0 0;
-        color: #94a3b8;
-        padding: 0 20px;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #38bdf8 !important;
-        color: #0f172a !important;
-        font-weight: bold;
-    }
-    
-    /* Hide specific Streamlit elements for a custom app feel */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    
-    /* Fix for broken images */
-    img { display: none !important; }
+    .stApp {{ background-color: {bg_color}; color: {text_color}; }}
+    [data-testid="stSidebar"] {{ background-color: {bg_color} !important; border-right: 1px solid {accent}33; }}
+    h1, h2, h3, h4 {{ color: {accent} !important; }}
+    [data-testid="stMetric"] {{ background-color: {card_bg} !important; border-radius: 12px; border: 1px solid {accent}22; }}
+    .stButton>button {{ background: linear-gradient(90deg, #0ea5e9, #2563eb); color: white; border: none; font-weight: bold; border-radius: 8px; }}
+    .stTabs [data-baseweb="tab-list"] {{ background-color: transparent; }}
+    .stTabs [data-baseweb="tab"] {{ color: {text_color}77; }}
+    .stTabs [aria-selected="true"] {{ color: {accent} !important; border-bottom: 2px solid {accent} !important; }}
+    img {{ display: none !important; }}
     </style>
     """, unsafe_allow_html=True)
 
-# --- SIDEBAR: CLEAN CONTROLS ---
-st.sidebar.title("NeuroBACE-ML")
-st.sidebar.markdown("---")
+# --- LOAD LOTTIE ANIMATION (High Contrast Neural Network) ---
+@st.cache_data
+def load_lottieurl(url: str):
+    r = requests.get(url)
+    return r.json() if r.status_code == 200 else None
 
-threshold = st.sidebar.slider(
-    "Sensitivity Threshold", 
-    0.0, 1.0, 0.70, 0.01,
-    help="Adjust probability cut-off for active classification."
-)
+# High-contrast neural brain animation
+lottie_brain = load_lottieurl("https://lottie.host/8e2f8087-0b1a-4d76-9d8a-669e9c70c0c0/XlV5Z7Y4C6.json")
 
-st.sidebar.markdown("---")
-st.sidebar.caption("v1.0.0 | Optimized BACE1 Prediction")
+# --- SIDEBAR: NAVIGATION ---
+with st.sidebar:
+    if lottie_brain:
+        st_lottie(lottie_brain, height=180, key="brain_main")
+    st.title("NeuroBACE-ML")
+    st.markdown("---")
+    threshold = st.slider("Sensitivity Threshold", 0.0, 1.0, 0.70, 0.01)
+    st.caption("v1.0.1 | Adaptive Interface")
 
-# --- CORE PREDICTION LOGIC ---
+# --- CORE LOGIC ---
 @st.cache_resource
-def load_optimized_model():
+def load_neurobace_model():
     try:
         with open('BACE1_trained_model_optimized.pkl', 'rb') as f:
             return pickle.load(f)
-    except FileNotFoundError:
-        return None
+    except: return None
 
-model = load_optimized_model()
+model = load_neurobace_model()
 
 def predict_compound(smiles):
     mol = Chem.MolFromSmiles(smiles)
     if mol:
         fp = AllChem.GetMorganFingerprintAsBitVect(mol, radius=2, nBits=2048)
         fp_array = np.array(fp).reshape(1, -1)
-        prob = model.predict_proba(fp_array)[0][1]
-        return round(prob, 4)
+        return round(model.predict_proba(fp_array)[0][1], 4)
     return None
 
 # --- MAIN DASHBOARD ---
@@ -126,66 +81,40 @@ st.title("🧠 NeuroBACE-ML")
 st.markdown("#### *High-Fidelity Virtual Screening for Alzheimer's Therapeutic Discovery*")
 st.write("---")
 
-tab1, tab2, tab3 = st.tabs(["🚀 Screening Engine", "📈 Results Visualization", "🔬 Platform Data"])
+tab1, tab2, tab3 = st.tabs(["🚀 Screening Engine", "📈 Results Visualization", "🔬 Technical Specs"])
 
 with tab1:
-    col_in, col_space = st.columns([2, 1])
-    with col_in:
-        st.markdown("### Ligand Selection")
-        input_type = st.radio("Input Source", ["Manual SMILES Entry", "Batch Dataset Upload (CSV)"], horizontal=True)
-        
-        compounds = []
-        if input_type == "Manual SMILES Entry":
-            raw_text = st.text_area("Enter SMILES strings (one per line):", 
-                                    "COc1cc2c(cc1OC)C(=O)C(CC2)Cc3ccn(cc3)Cc4ccccc4")
-            compounds = [s.strip() for s in raw_text.split('\n') if s.strip()]
-        else:
-            file = st.file_uploader("Upload CSV (required column: 'smiles')")
-            if file:
-                df_upload = pd.read_csv(file)
-                if 'smiles' in df_upload.columns:
-                    compounds = df_upload['smiles'].tolist()
-        
-        if st.button("Start Virtual Screening"):
-            if model and compounds:
-                results = []
-                for s in compounds:
-                    p = predict_compound(s)
-                    if p is not None:
-                        classification = "ACTIVE" if p >= threshold else "INACTIVE"
-                        results.append({"SMILES": s, "Inhibition_Prob": p, "Result": classification})
-                
-                res_df = pd.DataFrame(results)
-                st.session_state['results'] = res_df
-                
-                st.write("---")
-                m1, m2, m3 = st.columns(3)
-                m1.metric("Molecules Processed", len(res_df))
-                m2.metric("Predicted Actives", len(res_df[res_df['Result'] == "ACTIVE"]))
-                m3.metric("Highest Probability", f"{res_df['Inhibition_Prob'].max():.2%}")
-                
-                st.dataframe(res_df.style.background_gradient(subset=['Inhibition_Prob'], cmap='Blues'), use_container_width=True)
-                
-                st.download_button("Download Full Report", res_df.to_csv(index=False), "NeuroBACE_Report.csv", "text/csv")
-            else:
-                st.error("Please provide valid input data.")
+    input_type = st.radio("Input Source", ["Manual Entry", "Batch Upload (CSV)"], horizontal=True)
+    compounds = []
+    if input_type == "Manual Entry":
+        raw = st.text_area("SMILES (one per line):", "COc1cc2c(cc1OC)C(=O)C(CC2)Cc3ccn(cc3)Cc4ccccc4")
+        compounds = [s.strip() for s in raw.split('\n') if s.strip()]
+    else:
+        f = st.file_uploader("Upload CSV (must contain 'smiles' column)"); 
+        if f: df = pd.read_csv(f); compounds = df['smiles'].tolist() if 'smiles' in df.columns else []
+
+    if st.button("Start Virtual Screening"):
+        if model and compounds:
+            results = []
+            for s in compounds:
+                p = predict_compound(s)
+                if p is not None:
+                    results.append({"SMILES": s, "Inhibition_Prob": p, "Result": "ACTIVE" if p >= threshold else "INACTIVE"})
+            
+            res_df = pd.DataFrame(results); st.session_state['results'] = res_df
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Molecules", len(res_df))
+            c2.metric("Predicted Actives", len(res_df[res_df['Result'] == "ACTIVE"]))
+            c3.metric("Max Probability", f"{res_df['Inhibition_Prob'].max():.2%}")
+            
+            st.dataframe(res_df.style.background_gradient(subset=['Inhibition_Prob'], cmap='Blues'), use_container_width=True)
+            st.download_button("Export CSV", res_df.to_csv(index=False), "NeuroBACE_ML_Report.csv")
 
 with tab2:
     if 'results' in st.session_state:
-        st.markdown("### Probability Distribution Analysis")
-        data = st.session_state['results']
-        fig = px.bar(data, x='SMILES', y='Inhibition_Prob', color='Inhibition_Prob',
-                     color_continuous_scale='Blues', template="plotly_dark")
+        fig = px.bar(st.session_state['results'], x='SMILES', y='Inhibition_Prob', color='Inhibition_Prob', color_continuous_scale='Blues', template=plotly_template)
         st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("Execute a screening to view the visual analytics.")
 
 with tab3:
-    st.markdown("### Technical Specifications")
-    st.write("""
-    NeuroBACE-ML is a computational platform built for identifying high-affinity BACE1 inhibitors.
-    - **Architecture:** Gradient Boosted Decision Trees (XGBoost).
-    - **Optimization:** Bayesian Hyperparameter Tuning.
-    - **Precision Score:** 0.8695 | **F1-Score:** 0.8801.
-    - **Dataset:** Human BACE1 bioactivity (ChEMBL4822).
-    """)
+    st.write("### Platform Data")
+    st.markdown("- **Precision Score:** 0.8695 | **F1-Score:** 0.8801\n- **Optimized Framework:** XGBoost + Optuna")
