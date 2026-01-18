@@ -6,9 +6,15 @@ import requests
 from rdkit import Chem
 from rdkit.Chem import AllChem
 import plotly.express as px
+from matplotlib.colors import LinearSegmentedColormap
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="NeuroBACE-ML", page_icon="🧠", layout="wide")
+
+# --- CUSTOM COLORMAP DEFINITION ---
+# Creates a smooth transition: Orange (Lowest) -> Yellow -> Green (Highest)
+custom_oyg_cmap = LinearSegmentedColormap.from_list("oyg", ["#ff9900", "#ffff00", "#00cc00"])
+plotly_oyg = ["#ff9900", "#ffff00", "#00cc00"]
 
 # --- THEME LOGIC ---
 if 'theme' not in st.session_state:
@@ -32,7 +38,7 @@ st.markdown(f"""
     h1, h2, h3, h4, label, span, p, [data-testid="stWidgetLabel"] p, .stMarkdown p {{ 
         color: {text} !important; opacity: 1 !important; 
     }}
-    [data-testid="stMetric"] {{ background-color: {card} !important; border: 1px solid {accent}44 !important; border-radius: 12px; }}
+    [data-testid="stMetric"] {{ background-color: {card} !important; border-radius: 12px; border: 1px solid {accent}44; }}
     [data-testid="stMetricValue"] div {{ color: {accent} !important; font-weight: bold; }}
     .stButton>button {{ background: linear-gradient(90deg, #0ea5e9, #2563eb) !important; color: white !important; font-weight: bold !important; border-radius: 8px !important; }}
     img {{ display: none !important; }}
@@ -42,13 +48,11 @@ st.markdown(f"""
 
 # --- UTILITY: PUBCHEM NAME RECOGNITION ---
 def get_compound_name(smiles):
-    """Fetches common name from PubChem for a given SMILES string."""
     try:
         url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{smiles}/property/Title/JSON"
         response = requests.get(url, timeout=5)
         if response.status_code == 200:
-            data = response.json()
-            return data['PropertyTable']['Properties'][0].get('Title', "Unknown")
+            return response.json()['PropertyTable']['Properties'][0].get('Title', "Unknown")
         return "Novel/Unknown"
     except:
         return "Fetch Error"
@@ -57,7 +61,7 @@ def get_compound_name(smiles):
 with st.sidebar:
     st.markdown("---")
     threshold = st.slider("Sensitivity Threshold", 0.0, 1.0, 0.70, 0.01)
-    st.caption("v1.1.0 | Feature Update: Name Recognition")
+    st.caption("v1.2.0 | Aesthetic Color Update")
 
 # --- PREDICTION ENGINE ---
 @st.cache_resource
@@ -90,7 +94,7 @@ with t1:
         raw = st.text_area("SMILES (one per line):", "COc1cc2c(cc1OC)C(=O)C(CC2)Cc3ccn(cc3)Cc4ccccc4")
         mols = [s.strip() for s in raw.split('\n') if s.strip()]
     else:
-        f = st.file_uploader("Upload CSV (must contain 'smiles' column)")
+        f = st.file_uploader("Upload Dataset")
         if f: 
             df_in = pd.read_csv(f)
             mols = df_in['smiles'].tolist() if 'smiles' in df_in.columns else []
@@ -98,48 +102,45 @@ with t1:
     if st.button("Start Virtual Screening"):
         if model and mols:
             res = []
-            progress_bar = st.progress(0)
+            bar = st.progress(0)
             for i, s in enumerate(mols):
                 p = run_prediction(s)
                 if p is not None:
-                    # Fetching Name
-                    name = get_compound_name(s)
                     res.append({
-                        "Compound Name": name,
+                        "Compound Name": get_compound_name(s),
                         "SMILES": s, 
                         "Prob": p, 
                         "Result": "ACTIVE" if p >= threshold else "INACTIVE"
                     })
-                progress_bar.progress((i + 1) / len(mols))
+                bar.progress((i + 1) / len(mols))
             
             df_res = pd.DataFrame(res)
             st.session_state['results'] = df_res
             
             c1, c2, c3 = st.columns(3)
-            c1.metric("Molecules Processed", len(df_res))
+            c1.metric("Total Processed", len(df_res))
             c2.metric("Potent Hits", len(df_res[df_res['Result'] == "ACTIVE"]))
             c3.metric("Max Probability", f"{df_res['Prob'].max():.2%}")
             
             st.write("---")
-            st.write("### Integrated Screening Report")
-            st.dataframe(df_res.style.background_gradient(subset=['Prob'], cmap='Blues'), use_container_width=True)
-            st.download_button("📥 Export Full Technical Report (CSV)", df_res.to_csv(index=False), "NeuroBACE_Detailed_Report.csv")
+            # Apply Orange-Yellow-Green Gradient to Table
+            st.dataframe(df_res.style.background_gradient(subset=['Prob'], cmap=custom_oyg_cmap), use_container_width=True)
+            st.download_button("📥 Export Results (CSV)", df_res.to_csv(index=False), "NeuroBACE_OYG_Report.csv")
         else:
-            st.error("Please provide valid input data.")
+            st.error("Please provide valid data.")
 
 with t2:
     if 'results' in st.session_state:
+        # Apply Orange-Yellow-Green Gradient to Bar Chart
         fig = px.bar(st.session_state['results'], x='Compound Name', y='Prob', color='Prob', 
-                     color_continuous_scale='Blues', template=plotly_temp,
-                     hover_data=['SMILES'])
+                     color_continuous_scale=plotly_oyg, template=plotly_temp)
         st.plotly_chart(fig, use_container_width=True)
 
 with t3:
     st.write("### Platform Specifications")
-    st.markdown("""
+    st.markdown(f"""
     - **Architecture:** Optimized XGBoost Model
-    - **Balanced Accuracy**: 0.86
-    - **F1 Score**: 0.88
-    - **Precision**: 0.87
-    - **Database Integration**: PubChem PUG REST API for real-time name recognition.
+    - **Precision:** 0.8695 | **F1 Score:** 0.8801
+    - **Balanced Accuracy:** 0.8619
+    - **Dataset:** 8,750 Curated BACE1 Bioactivity Records
     """)
