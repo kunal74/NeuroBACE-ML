@@ -6,4 +6,3 @@ xgboost
 plotly
 matplotlib
 streamlit-lottie
-requests
