@@ -19,55 +19,52 @@ st.sidebar.title("NeuroBACE-ML")
 theme_choice = st.sidebar.radio("Appearance Mode", ["Dark", "Light"], horizontal=True)
 st.session_state.theme = theme_choice
 
-# Define Theme Variables for Perfect Visibility
+# Force High-Contrast Variables
 if st.session_state.theme == 'Dark':
     bg, text, card, accent = "#0f172a", "#f8fafc", "#1e293b", "#38bdf8"
     plotly_temp = "plotly_dark"
 else:
-    # High-contrast light theme colors
-    bg, text, card, accent = "#ffffff", "#0f172a", "#f1f5f9", "#2563eb"
+    # High-contrast light theme: Black text on white background
+    bg, text, card, accent = "#ffffff", "#000000", "#f1f5f9", "#2563eb"
     plotly_temp = "plotly_white"
 
-# --- UNIVERSAL VISIBILITY CSS ---
+# --- THEME INJECTION CSS ---
 st.markdown(f"""
     <style>
-    /* Global Background and Text */
+    /* 1. Global Visibility Fix */
     .stApp {{ background-color: {bg} !important; color: {text} !important; }}
     
-    /* Force Sidebar Visibility */
-    [data-testid="stSidebar"] {{ background-color: {bg} !important; border-right: 1px solid {accent}33; }}
-    [data-testid="stSidebar"] p, [data-testid="stSidebar"] label {{ color: {text} !important; font-weight: 500; }}
+    /* 2. Fix Invisible Text in Light Mode (Radio buttons, labels, markdown) */
+    h1, h2, h3, h4, label, .stMarkdown p, [data-testid="stWidgetLabel"] p {{ 
+        color: {text} !important; 
+        opacity: 1 !important; 
+    }}
     
-    /* Header & Widget Visibility */
-    h1, h2, h3, h4, label, .stMarkdown p {{ color: {text} !important; }}
-    .stRadio label p {{ color: {text} !important; opacity: 1 !important; }}
-    
-    /* Remove Metric Blocks and Apply Themed Cards */
+    /* 3. Hide Broken Image Icon & Streamlit Headers */
+    img {{ display: none !important; }}
+    #MainMenu, footer {{ visibility: hidden; }}
+
+    /* 4. Themed Metric Cards (No Ugly White Blocks) */
     [data-testid="stMetric"] {{ 
         background-color: {card} !important; 
         border: 1px solid {accent}44 !important; 
         border-radius: 12px; 
     }}
-    [data-testid="stMetricLabel"] p {{ color: {text} !important; opacity: 0.8; }}
     [data-testid="stMetricValue"] div {{ color: {accent} !important; font-weight: bold; }}
 
-    /* Tab Styling */
+    /* 5. Professional Tab Styling */
     .stTabs [data-baseweb="tab"] {{ color: {text} !important; opacity: 0.6; }}
     .stTabs [aria-selected="true"] {{ color: {accent} !important; border-bottom: 3px solid {accent} !important; opacity: 1 !important; }}
 
-    /* Button Gradient */
+    /* 6. High-Visibility Buttons */
     .stButton>button {{ 
         background: linear-gradient(90deg, #0ea5e9, #2563eb); 
         color: white !important; border: none; font-weight: bold; border-radius: 8px; width: 100%;
     }}
-    
-    /* Clean UI Hacks */
-    img {{ display: none !important; }}
-    #MainMenu, footer {{ visibility: hidden; }}
     </style>
     """, unsafe_allow_html=True)
 
-# --- NEURAL MOTION GRAPHICS ---
+# --- SCIENTIFIC MOTION GRAPHICS ---
 @st.cache_data
 def load_lottie(url):
     try:
@@ -75,12 +72,12 @@ def load_lottie(url):
         return r.json() if r.status_code == 200 else None
     except: return None
 
-# High-contrast neural brain for both modes
+# Load a professional neural-network brain animation
 brain_ani = load_lottie("https://lottie.host/8e2f8087-0b1a-4d76-9d8a-669e9c70c0c0/XlV5Z7Y4C6.json")
 
 with st.sidebar:
     if brain_ani:
-        st_lottie(brain_ani, height=180, key="main_ani", speed=1)
+        st_lottie(brain_ani, height=200, key="main_ani", speed=1)
     st.markdown("---")
     threshold = st.slider("Sensitivity Threshold", 0.0, 1.0, 0.70, 0.01)
 
@@ -103,7 +100,7 @@ def run_prediction(smiles):
 
 # --- MAIN DASHBOARD ---
 st.title("🧠 NeuroBACE-ML")
-st.markdown("##### *High-Fidelity Virtual Screening for Alzheimer's Therapeutic Discovery*")
+st.markdown("##### *Advanced Platform for BACE1 Inhibitor Prediction*")
 st.write("---")
 
 t1, t2, t3 = st.tabs(["🚀 Screening Engine", "📈 Visual Analytics", "🔬 Specifications"])
@@ -117,8 +114,8 @@ with t1:
     else:
         f = st.file_uploader("Upload CSV (must contain 'smiles' column)")
         if f: 
-            df = pd.read_csv(f)
-            mols = df['smiles'].tolist() if 'smiles' in df.columns else []
+            df_in = pd.read_csv(f)
+            mols = df_in['smiles'].tolist() if 'smiles' in df_in.columns else []
 
     if st.button("Start Virtual Screening"):
         if model and mols:
@@ -131,15 +128,16 @@ with t1:
             df_res = pd.DataFrame(res)
             st.session_state['results'] = df_res
             
+            # Metrics (Adaptive Colors)
             c1, c2, c3 = st.columns(3)
-            c1.metric("Molecules", len(df_res))
-            c2.metric("Potent Hits", len(df_res[df_res['Result'] == "ACTIVE"]))
-            c3.metric("Max Prob", f"{df_res['Prob'].max():.2%}")
+            c1.metric("Molecules Processed", len(df_res))
+            c2.metric("Predicted Actives", len(df_res[df_res['Result'] == "ACTIVE"]))
+            c3.metric("Max Probability", f"{df_res['Prob'].max():.2%}")
             
+            st.write("---")
+            # Apply background gradient (Requires matplotlib in requirements.txt)
             st.dataframe(df_res.style.background_gradient(subset=['Prob'], cmap='Blues'), use_container_width=True)
             st.download_button("Export Results", df_res.to_csv(index=False), "NeuroBACE_Report.csv")
-        else:
-            st.error("Please provide valid input data.")
 
 with t2:
     if 'results' in st.session_state:
@@ -147,12 +145,15 @@ with t2:
                      color_continuous_scale='Blues', template=plotly_temp)
         st.plotly_chart(fig, use_container_width=True)
     else:
-        st.info("Execute screening to view analytics.")
+        st.info("Execute a screening to view the visual distribution analytics.")
 
 with t3:
-    st.write("### Platform Architecture")
-    st.markdown("""
-    - **Algorithm:** Optimized XGBoost Model
-    - **Training Data:** 8,750 Curated BACE1 records
+    st.write("### Platform Data & Methodology")
+    st.markdown(f"""
+    - **Algorithm:** eXtreme Gradient Boosting (XGBoost)
+    - **Optimization:** Bayesian Framework via Optuna
     - **Precision:** 0.8695 | **F1 Score:** 0.8801
+    - **Balanced Accuracy:** 0.8619
     """)
+    st.divider()
+    st.caption("Developed for Alzheimer's therapeutic discovery research.")
