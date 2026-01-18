@@ -1,1 +1,6 @@
-streamlit pandas numpy rdkit xgboost plotly
+streamlit 
+pandas 
+numpy 
+rdkit 
+xgboost 
+plotly
