@@ -15,72 +15,74 @@ st.set_page_config(page_title="NeuroBACE-ML", page_icon="🧠", layout="wide")
 if 'theme' not in st.session_state:
     st.session_state.theme = 'Dark'
 
-# Sidebar Toggle
 st.sidebar.title("NeuroBACE-ML")
 theme_choice = st.sidebar.radio("Appearance Mode", ["Dark", "Light"], horizontal=True)
 st.session_state.theme = theme_choice
 
-# Define Theme Variables
+# Define Theme Variables for Perfect Visibility
 if st.session_state.theme == 'Dark':
     bg, text, card, accent = "#0f172a", "#f8fafc", "#1e293b", "#38bdf8"
     plotly_temp = "plotly_dark"
 else:
-    bg, text, card, accent = "#ffffff", "#1e293b", "#f1f5f9", "#2563eb"
+    # High-contrast light theme colors
+    bg, text, card, accent = "#ffffff", "#0f172a", "#f1f5f9", "#2563eb"
     plotly_temp = "plotly_white"
 
-# --- VISIBILITY CSS OVERHAUL ---
+# --- UNIVERSAL VISIBILITY CSS ---
 st.markdown(f"""
     <style>
-    /* Global Background and Text Visibility */
+    /* Global Background and Text */
     .stApp {{ background-color: {bg} !important; color: {text} !important; }}
     
-    /* Ensure all sidebar text is visible */
+    /* Force Sidebar Visibility */
     [data-testid="stSidebar"] {{ background-color: {bg} !important; border-right: 1px solid {accent}33; }}
-    [data-testid="stSidebar"] .stMarkdown p, [data-testid="stSidebar"] label {{ color: {text} !important; }}
+    [data-testid="stSidebar"] p, [data-testid="stSidebar"] label {{ color: {text} !important; font-weight: 500; }}
     
-    /* Header and Subheader Visibility */
-    h1, h2, h3, h4, .stMarkdown p, label, .stWidget label {{ color: {text} !important; }}
+    /* Header & Widget Visibility */
+    h1, h2, h3, h4, label, .stMarkdown p {{ color: {text} !important; }}
+    .stRadio label p {{ color: {text} !important; opacity: 1 !important; }}
     
-    /* Metric Card Fix (Removing Ugly White Blocks) */
+    /* Remove Metric Blocks and Apply Themed Cards */
     [data-testid="stMetric"] {{ 
         background-color: {card} !important; 
         border: 1px solid {accent}44 !important; 
         border-radius: 12px; 
-        padding: 15px !important; 
     }}
-    [data-testid="stMetricLabel"] p {{ color: {text}77 !important; }}
-    [data-testid="stMetricValue"] div {{ color: {accent} !important; }}
+    [data-testid="stMetricLabel"] p {{ color: {text} !important; opacity: 0.8; }}
+    [data-testid="stMetricValue"] div {{ color: {accent} !important; font-weight: bold; }}
 
-    /* Tab Visibility */
-    .stTabs [data-baseweb="tab"] {{ color: {text}99 !important; font-weight: 600; }}
-    .stTabs [aria-selected="true"] {{ color: {accent} !important; border-bottom: 3px solid {accent} !important; }}
+    /* Tab Styling */
+    .stTabs [data-baseweb="tab"] {{ color: {text} !important; opacity: 0.6; }}
+    .stTabs [aria-selected="true"] {{ color: {accent} !important; border-bottom: 3px solid {accent} !important; opacity: 1 !important; }}
 
-    /* Modern Button */
+    /* Button Gradient */
     .stButton>button {{ 
         background: linear-gradient(90deg, #0ea5e9, #2563eb); 
         color: white !important; border: none; font-weight: bold; border-radius: 8px; width: 100%;
     }}
     
-    /* Hide broken icons */
+    /* Clean UI Hacks */
     img {{ display: none !important; }}
+    #MainMenu, footer {{ visibility: hidden; }}
     </style>
     """, unsafe_allow_html=True)
 
 # --- NEURAL MOTION GRAPHICS ---
 @st.cache_data
 def load_lottie(url):
-    r = requests.get(url)
-    return r.json() if r.status_code == 200 else None
+    try:
+        r = requests.get(url)
+        return r.json() if r.status_code == 200 else None
+    except: return None
 
-# High-contrast brain for both modes
+# High-contrast neural brain for both modes
 brain_ani = load_lottie("https://lottie.host/8e2f8087-0b1a-4d76-9d8a-669e9c70c0c0/XlV5Z7Y4C6.json")
 
 with st.sidebar:
     if brain_ani:
-        st_lottie(brain_ani, height=180, key="main_ani")
+        st_lottie(brain_ani, height=180, key="main_ani", speed=1)
     st.markdown("---")
     threshold = st.slider("Sensitivity Threshold", 0.0, 1.0, 0.70, 0.01)
-    st.caption("v1.0.2 | Professional Edition")
 
 # --- PREDICTION ENGINE ---
 @st.cache_resource
@@ -104,7 +106,7 @@ st.title("🧠 NeuroBACE-ML")
 st.markdown("##### *High-Fidelity Virtual Screening for Alzheimer's Therapeutic Discovery*")
 st.write("---")
 
-t1, t2, t3 = st.tabs(["🚀 Screening Engine", "📈 Results Visualization", "🔬 Technical Specs"])
+t1, t2, t3 = st.tabs(["🚀 Screening Engine", "📈 Visual Analytics", "🔬 Specifications"])
 
 with t1:
     in_type = st.radio("Input Source", ["Manual Entry", "Batch Upload (CSV)"], horizontal=True)
@@ -129,25 +131,28 @@ with t1:
             df_res = pd.DataFrame(res)
             st.session_state['results'] = df_res
             
-            # Metrics (Now themed correctly)
             c1, c2, c3 = st.columns(3)
             c1.metric("Molecules", len(df_res))
             c2.metric("Potent Hits", len(df_res[df_res['Result'] == "ACTIVE"]))
             c3.metric("Max Prob", f"{df_res['Prob'].max():.2%}")
             
             st.dataframe(df_res.style.background_gradient(subset=['Prob'], cmap='Blues'), use_container_width=True)
-            st.download_button("Export CSV", df_res.to_csv(index=False), "NeuroBACE_Report.csv")
+            st.download_button("Export Results", df_res.to_csv(index=False), "NeuroBACE_Report.csv")
+        else:
+            st.error("Please provide valid input data.")
 
 with t2:
     if 'results' in st.session_state:
         fig = px.bar(st.session_state['results'], x='SMILES', y='Prob', color='Prob', 
                      color_continuous_scale='Blues', template=plotly_temp)
         st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Execute screening to view analytics.")
 
 with t3:
-    st.write("### Platform Specifications")
+    st.write("### Platform Architecture")
     st.markdown("""
-    - **Architecture:** Optimized XGBoost Framework
-    - **Performance:** Precision: 0.8695 | F1: 0.8801
-    - **Dataset:** Human BACE1 (ChEMBL4822)
+    - **Algorithm:** Optimized XGBoost Model
+    - **Training Data:** 8,750 Curated BACE1 records
+    - **Precision:** 0.8695 | **F1 Score:** 0.8801
     """)
