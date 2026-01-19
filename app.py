@@ -105,111 +105,57 @@ def guess_smiles_column(columns):
 # PubChem (fast + robust)
 # Uses official PUG-REST + PUG-View endpoints.
 # -----------------------
-SESSION = requests.Session()
-SESSION.headers.update({"User-Agent": "NeuroBACE-ML/1.0"})
+from urllib.parse import quote
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+import requests
 
-PUGREST_SMILES_TITLE_JSON = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{}/property/Title/JSON"
-PUGREST_SMILES_TO_CIDS_JSON = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{}/cids/JSON"
-PUGVIEW_COMPOUND_JSON = "https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data/compound/{}/JSON/?response_type=display"
-PUGREST_CID_IUPAC_JSON = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{}/property/IUPACName/JSON"
+def build_pubchem_session():
+    s = requests.Session()
+    s.headers.update({"User-Agent": "NeuroBACE-ML/1.0"})
+    retry = Retry(
+        total=4,
+        backoff_factor=0.8,  # 0.8s, 1.6s, 3.2s...
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET"],
+        respect_retry_after_header=True,
+        raise_on_status=False,
+    )
+    s.mount("https://", HTTPAdapter(max_retries=retry))
+    return s
 
-def _get_json(url: str, timeout_s: int = 4):
+PUBCHEM_SESSION = build_pubchem_session()
+
+@st.cache_data(show_spinner=False, ttl=60 * 60 * 24 * 7)
+def get_compound_name(smiles: str, timeout: int = 6):
+    """
+    Returns: (name, cid, source, error)
+    - Uses PubChem PUG-REST Title (fast, single call).
+    - Robust to HTTP 503/429 via retries + backoff.
+    """
     try:
-        r = SESSION.get(url, timeout=timeout_s)
-        if r.status_code != 200:
-            return None, f"HTTP {r.status_code}"
-        return r.json(), ""
+        enc = quote(smiles, safe="")  # IMPORTANT: URL-encode SMILES
+        url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{enc}/property/Title/JSON"
+        r = PUBCHEM_SESSION.get(url, timeout=timeout)
+
+        if r.status_code == 200:
+            data = r.json()
+            props = data.get("PropertyTable", {}).get("Properties", [])
+            title = props[0].get("Title") if props else None
+            if isinstance(title, str) and title.strip():
+                return title.strip(), None, "Title", ""
+            return "Unknown", None, "None", "No Title returned (200 OK)"
+
+        # Common transient cases
+        if r.status_code == 503:
+            return "Unknown", None, "None", "PubChem temporarily unavailable (HTTP 503). Retry later."
+        if r.status_code == 429:
+            return "Unknown", None, "None", "Rate-limited by PubChem (HTTP 429). Reduce requests and retry."
+
+        return "Unknown", None, "None", f"PubChem error: HTTP {r.status_code}"
+
     except Exception as e:
-        return None, f"{type(e).__name__}: {e}"
-
-@st.cache_data(show_spinner=False, ttl=60 * 60 * 24 * 7)
-def pubchem_title_from_smiles(smiles: str):
-    enc = quote(smiles, safe="")
-    url = PUGREST_SMILES_TITLE_JSON.format(enc)
-    data, err = _get_json(url, timeout_s=4)
-    if data is None:
-        return None, err
-    props = data.get("PropertyTable", {}).get("Properties", [])
-    if not props:
-        return None, "No Title property"
-    title = props[0].get("Title")
-    if isinstance(title, str) and title.strip():
-        return title.strip(), ""
-    return None, "Empty Title"
-
-@st.cache_data(show_spinner=False, ttl=60 * 60 * 24 * 7)
-def pubchem_cid_from_smiles(smiles: str):
-    enc = quote(smiles, safe="")
-    url = PUGREST_SMILES_TO_CIDS_JSON.format(enc)
-    data, err = _get_json(url, timeout_s=4)
-    if data is None:
-        return None, err
-    cids = data.get("IdentifierList", {}).get("CID", [])
-    if not cids:
-        return None, "No CID returned"
-    return int(cids[0]), ""
-
-@st.cache_data(show_spinner=False, ttl=60 * 60 * 24 * 7)
-def pubchem_recordtitle_from_cid(cid: int):
-    url = PUGVIEW_COMPOUND_JSON.format(cid)
-    data, err = _get_json(url, timeout_s=4)
-    if data is None:
-        return None, err
-    # PubChem PUG-View example shows Record.RecordTitle. :contentReference[oaicite:3]{index=3}
-    title = (data.get("Record", {}) or {}).get("RecordTitle")
-    if isinstance(title, str) and title.strip():
-        return title.strip(), ""
-    return None, "RecordTitle missing"
-
-@st.cache_data(show_spinner=False, ttl=60 * 60 * 24 * 7)
-def pubchem_iupac_from_cid(cid: int):
-    url = PUGREST_CID_IUPAC_JSON.format(cid)
-    data, err = _get_json(url, timeout_s=4)
-    if data is None:
-        return None, err
-    props = data.get("PropertyTable", {}).get("Properties", [])
-    if not props:
-        return None, "IUPAC missing"
-    name = props[0].get("IUPACName")
-    if isinstance(name, str) and name.strip():
-        return name.strip(), ""
-    return None, "Empty IUPACName"
-
-def resolve_name(smiles: str):
-    """
-    Prefer Title (fast) -> else CID -> RecordTitle -> else IUPAC.
-    Returns: name, cid, source, err
-    """
-    # 1) Fast Title (Gemini-style)
-    title, t_err = pubchem_title_from_smiles(smiles)
-    if title:
-        return title, None, "Title", ""
-
-    # 2) CID-based
-    cid, c_err = pubchem_cid_from_smiles(smiles)
-    if cid is None:
-        # return the most informative error we have
-        err = c_err or t_err or "CID lookup failed"
-        return "Unknown", None, "None", err
-
-    rt, rt_err = pubchem_recordtitle_from_cid(cid)
-    if rt:
-        return rt, cid, "RecordTitle", ""
-
-    iup, i_err = pubchem_iupac_from_cid(cid)
-    if iup:
-        return iup, cid, "IUPACName", ""
-
-    # Still unknown: provide combined error
-    err = "; ".join([x for x in [t_err, rt_err, i_err] if x])
-    return "Unknown", cid, "None", err or "No name found"
-
-def pubchem_connectivity_test():
-    try:
-        r = SESSION.get("https://pubchem.ncbi.nlm.nih.gov/docs/", timeout=3)
-        return r.status_code == 200
-    except Exception:
-        return False
+        return "Unknown", None, "None", f"{type(e).__name__}: {e}"
 
 # -----------------------
 # Sidebar
