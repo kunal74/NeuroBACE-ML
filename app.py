@@ -53,7 +53,6 @@ with st.sidebar:
 @st.cache_resource
 def load_model():
     try:
-        # Loading the verified .pkl model
         with open('BACE1_trained_model_optimized.pkl', 'rb') as f:
             return pickle.load(f)
     except: return None
@@ -64,27 +63,24 @@ def run_prediction(smiles):
     mol = Chem.MolFromSmiles(smiles)
     if mol:
         fp = AllChem.GetMorganFingerprintAsBitVect(mol, radius=2, nBits=2048)
-        # Using standard predict_proba for the pickled XGBoost model
         return round(model.predict_proba(np.array(fp).reshape(1, -1))[0][1], 4)
     return None
 
-# --- HEADER WITH PERFECT ALIGNMENT ---
-# Save your brain image as 'logo.png' in the same folder as this script
+# --- HEADER WITH ENLARGED LOGO ---
 logo_path = "logo.png"
 
-# vertical_alignment="center" ensures the image and text are perfectly level
-head_col1, head_col2 = st.columns([1, 6], vertical_alignment="center")
+# Adjusted column ratio to [2, 6] to accommodate a bigger logo
+head_col1, head_col2 = st.columns([2, 6], vertical_alignment="center")
 
 with head_col1:
     if os.path.exists(logo_path):
-        st.image(logo_path, width=100)
+        # Increased width to 150 for better visibility
+        st.image(logo_path, width=150)
     else:
-        # Placeholder if image is missing
-        st.markdown(f'<div style="width:80px; height:80px; background:{accent}; border-radius:50%;"></div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="width:120px; height:120px; background:{accent}; border-radius:50%;"></div>', unsafe_allow_html=True)
 
 with head_col2:
     st.title("NeuroBACE-ML")
-    # Updated subtitle as requested
     st.markdown("##### *Advanced Predictive Framework for BACE1 Inhibition*")
 
 st.write("---")
@@ -131,7 +127,6 @@ with t1:
             st.dataframe(df_res.style.background_gradient(subset=['Inhibition Prob'], cmap='RdYlGn'), use_container_width=True)
             st.download_button("Export Results", df_res.to_csv(index=False), "NeuroBACE_Report.csv")
 
-# --- TAB 2: VISUAL ANALYTICS ---
 with t2:
     if 'results' in st.session_state:
         st.markdown("### Predictive Probability Distribution")
@@ -152,7 +147,6 @@ with t2:
         fig.update_layout(xaxis_range=[0, 1])
         st.plotly_chart(fig, use_container_width=True)
 
-# --- TAB 3: SPECIFICATIONS ---
 with t3:
     st.write("### Platform Architecture")
     st.markdown("""
