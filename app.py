@@ -2,15 +2,16 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import pickle
-import requests
 from rdkit import Chem
 from rdkit.Chem import AllChem
 import plotly.express as px
+import requests
+from streamlit_lottie import st_lottie
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="NeuroBACE-ML", page_icon="🧠", layout="wide")
 
-# --- THEME LOGIC ---
+# --- ADAPTIVE THEME LOGIC ---
 if 'theme' not in st.session_state:
     st.session_state.theme = 'Dark'
 
@@ -18,69 +19,70 @@ st.sidebar.title("NeuroBACE-ML")
 theme_choice = st.sidebar.radio("Appearance Mode", ["Dark", "Light"], horizontal=True)
 st.session_state.theme = theme_choice
 
-# Adaptive Colors for High Contrast
+# Define Theme Variables for Perfect Visibility
 if st.session_state.theme == 'Dark':
     bg, text, card, accent = "#0f172a", "#f8fafc", "#1e293b", "#38bdf8"
     plotly_temp = "plotly_dark"
 else:
-    # High-contrast Light Theme
-    bg, text, card, accent = "#ffffff", "#000000", "#f1f5f9", "#2563eb"
+    # High-contrast light theme colors
+    bg, text, card, accent = "#ffffff", "#0f172a", "#f1f5f9", "#2563eb"
     plotly_temp = "plotly_white"
 
 # --- UNIVERSAL VISIBILITY CSS ---
 st.markdown(f"""
     <style>
+    /* Global Background and Text */
     .stApp {{ background-color: {bg} !important; color: {text} !important; }}
+    
+    /* Force Sidebar Visibility */
     [data-testid="stSidebar"] {{ background-color: {bg} !important; border-right: 1px solid {accent}33; }}
+    [data-testid="stSidebar"] p, [data-testid="stSidebar"] label {{ color: {text} !important; font-weight: 500; }}
     
-    /* Force text visibility */
-    h1, h2, h3, h4, label, span, p, [data-testid="stWidgetLabel"] p, .stMarkdown p {{ 
-        color: {text} !important; opacity: 1 !important; 
+    /* Header & Widget Visibility */
+    h1, h2, h3, h4, label, .stMarkdown p {{ color: {text} !important; }}
+    .stRadio label p {{ color: {text} !important; opacity: 1 !important; }}
+    
+    /* Remove Metric Blocks and Apply Themed Cards */
+    [data-testid="stMetric"] {{ 
+        background-color: {card} !important; 
+        border: 1px solid {accent}44 !important; 
+        border-radius: 12px; 
     }}
-    
-    [data-testid="stMetric"] {{ background-color: {card} !important; border: 1px solid {accent}44 !important; border-radius: 12px; }}
+    [data-testid="stMetricLabel"] p {{ color: {text} !important; opacity: 0.8; }}
     [data-testid="stMetricValue"] div {{ color: {accent} !important; font-weight: bold; }}
 
-    /* Button Styling */
+    /* Tab Styling */
+    .stTabs [data-baseweb="tab"] {{ color: {text} !important; opacity: 0.6; }}
+    .stTabs [aria-selected="true"] {{ color: {accent} !important; border-bottom: 3px solid {accent} !important; opacity: 1 !important; }}
+
+    /* Button Gradient */
     .stButton>button {{ 
-        background: linear-gradient(90deg, #0ea5e9, #2563eb) !important; 
-        color: white !important; font-weight: bold !important; border-radius: 8px !important;
+        background: linear-gradient(90deg, #0ea5e9, #2563eb); 
+        color: white !important; border: none; font-weight: bold; border-radius: 8px; width: 100%;
     }}
     
+    /* Clean UI Hacks */
     img {{ display: none !important; }}
     #MainMenu, footer {{ visibility: hidden; }}
     </style>
     """, unsafe_allow_html=True)
 
-# --- UTILITY: NAME RECOGNITION ---
-import time
-from urllib.parse import quote
+# --- NEURAL MOTION GRAPHICS ---
+@st.cache_data
+def load_lottie(url):
+    try:
+        r = requests.get(url)
+        return r.json() if r.status_code == 200 else None
+    except: return None
 
-def get_compound_name(smiles):
-    encoded_smi = quote(smiles)
-    url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{encoded_smi}/property/Title/JSON"
-    
-    # Try up to 3 times if the server is busy
-    for attempt in range(3):
-        try:
-            response = requests.get(url, timeout=10)
-            if response.status_code == 200:
-                return response.json()['PropertyTable']['Properties'][0].get('Title', "Unknown")
-            elif response.status_code == 503:
-                time.sleep(1)  # Wait 1 second before retrying
-                continue
-            else:
-                return f"Error {response.status_code}"
-        except Exception:
-            time.sleep(1)
-            
-    return "PubChem Busy/Unavailable"
+# High-contrast neural brain for both modes
+brain_ani = load_lottie("https://lottie.host/8e2f8087-0b1a-4d76-9d8a-669e9c70c0c0/XlV5Z7Y4C6.json")
 
-# --- SIDEBAR CONTROLS ---
 with st.sidebar:
+    if brain_ani:
+        st_lottie(brain_ani, height=180, key="main_ani", speed=1)
     st.markdown("---")
     threshold = st.slider("Sensitivity Threshold", 0.0, 1.0, 0.70, 0.01)
-    st.caption("v1.3.0 | Traffic Light Color Scheme")
 
 # --- PREDICTION ENGINE ---
 @st.cache_resource
@@ -101,7 +103,7 @@ def run_prediction(smiles):
 
 # --- MAIN DASHBOARD ---
 st.title("🧠 NeuroBACE-ML")
-st.markdown("##### *Advanced Platform for BACE1 Inhibitor Prediction*")
+st.markdown("##### *High-Fidelity Virtual Screening for Alzheimer's Therapeutic Discovery*")
 st.write("---")
 
 t1, t2, t3 = st.tabs(["🚀 Screening Engine", "📈 Visual Analytics", "🔬 Specifications"])
@@ -113,25 +115,18 @@ with t1:
         raw = st.text_area("SMILES (one per line):", "COc1cc2c(cc1OC)C(=O)C(CC2)Cc3ccn(cc3)Cc4ccccc4")
         mols = [s.strip() for s in raw.split('\n') if s.strip()]
     else:
-        f = st.file_uploader("Upload CSV")
+        f = st.file_uploader("Upload CSV (must contain 'smiles' column)")
         if f: 
-            df_in = pd.read_csv(f)
-            mols = df_in['smiles'].tolist() if 'smiles' in df_in.columns else []
+            df = pd.read_csv(f)
+            mols = df['smiles'].tolist() if 'smiles' in df.columns else []
 
     if st.button("Start Virtual Screening"):
         if model and mols:
             res = []
-            bar = st.progress(0)
-            for i, s in enumerate(mols):
+            for s in mols:
                 p = run_prediction(s)
                 if p is not None:
-                    res.append({
-                        "Compound Name": get_compound_name(s),
-                        "Inhibition Prob": p, 
-                        "Result": "ACTIVE" if p >= threshold else "INACTIVE",
-                        "SMILES": s
-                    })
-                bar.progress((i + 1) / len(mols))
+                    res.append({"SMILES": s, "Prob": p, "Result": "ACTIVE" if p >= threshold else "INACTIVE"})
             
             df_res = pd.DataFrame(res)
             st.session_state['results'] = df_res
@@ -139,41 +134,25 @@ with t1:
             c1, c2, c3 = st.columns(3)
             c1.metric("Molecules", len(df_res))
             c2.metric("Potent Hits", len(df_res[df_res['Result'] == "ACTIVE"]))
-            c3.metric("Max Probability", f"{df_res['Inhibition Prob'].max():.2%}")
+            c3.metric("Max Prob", f"{df_res['Prob'].max():.2%}")
             
-            st.write("---")
-            # Apply Red-Yellow-Green (RdYlGn) gradient to the table
-            st.dataframe(df_res.style.background_gradient(subset=['Inhibition Prob'], cmap='RdYlGn'), use_container_width=True)
+            st.dataframe(df_res.style.background_gradient(subset=['Prob'], cmap='Blues'), use_container_width=True)
             st.download_button("Export Results", df_res.to_csv(index=False), "NeuroBACE_Report.csv")
+        else:
+            st.error("Please provide valid input data.")
 
 with t2:
     if 'results' in st.session_state:
-        st.markdown("### Predictive Probability Distribution")
-        # Sort data for a cleaner visual gradient
-        data = st.session_state['results'].sort_values('Inhibition Prob', ascending=True)
-        
-        # Horizontal bar chart with matched Red-Yellow-Green scale
-        fig = px.bar(
-            data, 
-            y='Compound Name', 
-            x='Inhibition Prob', 
-            orientation='h',
-            color='Inhibition Prob',
-            # Strict mapping: Red(0) -> Yellow(0.5) -> Green(1)
-            color_continuous_scale=[[0, 'red'], [0.5, 'yellow'], [1, 'green']],
-            template=plotly_temp,
-            labels={'Inhibition Prob': 'Probability Score'},
-            height=max(400, len(data) * 30) # Prevent overlapping names
-        )
-        
-        fig.update_layout(xaxis_range=[0, 1])
+        fig = px.bar(st.session_state['results'], x='SMILES', y='Prob', color='Prob', 
+                     color_continuous_scale='Blues', template=plotly_temp)
         st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Execute screening to view analytics.")
 
 with t3:
     st.write("### Platform Architecture")
     st.markdown("""
-    - **Architecture:** Optimized XGBoost Framework
-    - **Optimization:** Bayesian Framework via Optuna
-    - **Feature Extraction:** 2048-bit Morgan Fingerprints (Radius=2)
-    - **Database Integration:** PubChem PUG REST API for real-time name recognition
+    - **Algorithm:** Optimized XGBoost Model
+    - **Training Data:** 8,750 Curated BACE1 records
+    - **Precision:** 0.8695 | **F1 Score:** 0.8801
     """)
