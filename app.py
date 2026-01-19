@@ -131,16 +131,81 @@ def guess_smiles_column(cols):
             return c
     return cols[0] if cols else None
 
-# --- UTILITY: NAME RECOGNITION ---
-def get_compound_name(smiles):
+
+# =========================
+# PubChem (Optional) — RecordTitle preferred, fallback IUPACName
+# NOTE: never called during screening; only called when user clicks Resolve Names.
+# =========================
+SESSION = requests.Session()
+SESSION.headers.update({"User-Agent": "NeuroBACE-ML/1.0"})
+
+PUGREST_SMILES_TO_CIDS_JSON = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{}/cids/JSON"
+PUGVIEW_COMPOUND_JSON       = "https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data/compound/{}/JSON/?response_type=display"
+PUGREST_CID_IUPAC_JSON      = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{}/property/IUPACName/JSON"
+
+@st.cache_data(show_spinner=False, ttl=60*60*24*7)
+def pubchem_smiles_to_cid(smiles: str):
     try:
-        url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{smiles}/property/Title/JSON"
-        response = requests.get(url, timeout=5)
-        if response.status_code == 200:
-            return response.json()['PropertyTable']['Properties'][0].get('Title', "Unknown")
-        return "Unknown Ligand"
-    except:
-        return "Novel Molecule"
+        enc = quote(smiles, safe="")
+        url = PUGREST_SMILES_TO_CIDS_JSON.format(enc)
+        r = SESSION.get(url, timeout=3)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        cids = data.get("IdentifierList", {}).get("CID", [])
+        return int(cids[0]) if cids else None
+    except Exception:
+        return None
+
+@st.cache_data(show_spinner=False, ttl=60*60*24*7)
+def pubchem_recordtitle_from_cid(cid: int):
+    try:
+        url = PUGVIEW_COMPOUND_JSON.format(cid)
+        r = SESSION.get(url, timeout=3)
+        if r.status_code != 200:
+            return "Unknown"
+        data = r.json()
+        title = (data.get("Record", {}) or {}).get("RecordTitle")
+        return title.strip() if isinstance(title, str) and title.strip() else "Unknown"
+    except Exception:
+        return "Unknown"
+
+@st.cache_data(show_spinner=False, ttl=60*60*24*7)
+def pubchem_iupac_from_cid(cid: int):
+    try:
+        url = PUGREST_CID_IUPAC_JSON.format(cid)
+        r = SESSION.get(url, timeout=3)
+        if r.status_code != 200:
+            return "Unknown"
+        data = r.json()
+        props = data.get("PropertyTable", {}).get("Properties", [])
+        if not props:
+            return "Unknown"
+        name = props[0].get("IUPACName")
+        return name.strip() if isinstance(name, str) and name.strip() else "Unknown"
+    except Exception:
+        return "Unknown"
+
+def resolve_name_recordtitle_then_iupac(smiles: str):
+    cid = pubchem_smiles_to_cid(smiles)
+    if cid is None:
+        return "Unknown", None, "None"
+    rt = pubchem_recordtitle_from_cid(cid)
+    if rt != "Unknown":
+        return rt, cid, "RecordTitle"
+    iup = pubchem_iupac_from_cid(cid)
+    if iup != "Unknown":
+        return iup, cid, "IUPACName"
+    return "Unknown", cid, "None"
+
+def pubchem_connectivity_test():
+    # A lightweight check
+    try:
+        r = SESSION.get("https://pubchem.ncbi.nlm.nih.gov", timeout=2)
+        return r.status_code == 200
+    except Exception:
+        return False
+
 
 # =========================
 # Sidebar controls
