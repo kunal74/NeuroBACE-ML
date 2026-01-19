@@ -44,6 +44,7 @@ st.markdown(f"""
 # --- SIDEBAR CONTROLS ---
 with st.sidebar:
     st.markdown("---")
+    # Updated Label for clear probability logic
     threshold = st.slider("Probability Threshold (P ≥ 0.7 = Active)", 0.0, 1.0, 0.70, 0.01)
     st.caption("v1.0")
 
@@ -51,6 +52,7 @@ with st.sidebar:
 @st.cache_resource
 def load_model():
     try:
+        # Loading the verified .pkl model
         with open('BACE1_trained_model_optimized.pkl', 'rb') as f:
             return pickle.load(f)
     except: return None
@@ -61,21 +63,93 @@ def run_prediction(smiles):
     mol = Chem.MolFromSmiles(smiles)
     if mol:
         fp = AllChem.GetMorganFingerprintAsBitVect(mol, radius=2, nBits=2048)
+        # Prediction logic for the pickled XGBoost model
         return round(model.predict_proba(np.array(fp).reshape(1, -1))[0][1], 4)
     return None
 
 # --- MAIN DASHBOARD ---
-# Professional Title with Custom Research Brain Logo
+# Professional Title with Embedded Brain Logo (Fixes FileNotFoundError)
 c1, c2 = st.columns([0.1, 0.9])
 with c1:
-    # Ensure this image file is in the same folder as your app.py
-    st.image("image_30ae46.png", width=80) 
+    st.markdown(f"""
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: 80px;">
+            <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM13 19H11V17H13V19ZM15.07 11.25L14.17 12.17C13.45 12.9 13 13.5 13 15H11V14.5C11 13.4 11.45 12.4 12.17 11.67L13.41 10.41C13.78 10.05 14 9.55 14 9C14 7.9 13.1 7 12 7C10.9 7 10 7.9 10 9H8C8 6.79 9.79 5 12 5C14.21 5 16 6.79 16 9C16 9.88 15.64 10.68 15.07 11.25Z" fill="{accent}"/>
+            <path d="M12 12C12.5523 12 13 11.5523 13 11C13 10.4477 12.5523 10 12 10C11.4477 10 11 10.4477 11 11C11 11.5523 11.4477 12 12 12Z" fill="{accent}"/>
+        </svg>
+    """, unsafe_allow_html=True)
 with c2:
     st.markdown(f"<h1 style='margin: 0; color: {text};'>NeuroBACE-ML</h1>", unsafe_allow_html=True)
     st.markdown("##### *Precision Platform for BACE1 Inhibitor Discovery*")
 
 st.write("---")
 
+# Material Icons for professional scientific aesthetics
 t1, t2, t3 = st.tabs([":material/science: Screening Engine", ":material/monitoring: Visual Analytics", ":material/settings: Specifications"])
 
-# ... Rest of the tabs logic remains identical to your previous v1.0 code ...
+with t1:
+    in_type = st.radio("Input Source", ["Manual Entry", "Batch Upload (CSV)"], horizontal=True)
+    mols = []
+    if in_type == "Manual Entry":
+        raw = st.text_area("SMILES (one per line):", "COc1cc2c(cc1OC)C(=O)C(CC2)Cc3ccn(cc3)Cc4ccccc4")
+        mols = [s.strip() for s in raw.split('\n') if s.strip()]
+    else:
+        f = st.file_uploader("Upload CSV")
+        if f: 
+            df_in = pd.read_csv(f)
+            mols = df_in['smiles'].tolist() if 'smiles' in df_in.columns else []
+
+    if st.button("Start Virtual Screening"):
+        if model and mols:
+            res = []
+            bar = st.progress(0)
+            for i, s in enumerate(mols):
+                p = run_prediction(s)
+                if p is not None:
+                    res.append({
+                        "Compounds": f"C-{i+1}", # Serial identifier logic
+                        "Inhibition Prob": p, 
+                        "Result": "ACTIVE" if p >= threshold else "INACTIVE",
+                        "SMILES": s
+                    })
+                bar.progress((i + 1) / len(mols))
+            
+            df_res = pd.DataFrame(res)
+            st.session_state['results'] = df_res
+            
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Molecules", len(df_res))
+            c2.metric("Potent Hits", len(df_res[df_res['Result'] == "ACTIVE"]))
+            c3.metric("Max Probability", f"{df_res['Inhibition Prob'].max():.2%}")
+            
+            st.write("---")
+            st.dataframe(df_res.style.background_gradient(subset=['Inhibition Prob'], cmap='RdYlGn'), use_container_width=True)
+            st.download_button("Export Results", df_res.to_csv(index=False), "NeuroBACE_Report.csv")
+
+with t2:
+    if 'results' in st.session_state:
+        st.markdown("### Predictive Probability Distribution")
+        data = st.session_state['results'].sort_values('Inhibition Prob', ascending=True)
+        
+        fig = px.bar(
+            data, 
+            y='Compounds', 
+            x='Inhibition Prob', 
+            orientation='h',
+            color='Inhibition Prob',
+            color_continuous_scale=[[0, 'red'], [0.5, 'yellow'], [1, 'green']],
+            template=plotly_temp,
+            labels={'Inhibition Prob': 'Probability Score'},
+            height=max(400, len(data) * 30)
+        )
+        
+        fig.update_layout(xaxis_range=[0, 1])
+        st.plotly_chart(fig, use_container_width=True)
+
+with t3:
+    st.write("### Platform Architecture")
+    st.markdown("""
+    - **Architecture:** Optimized XGBoost Framework (Pickle)
+    - **Optimization:** Bayesian Framework via Optuna
+    - **Feature Extraction:** 2048-bit Morgan Fingerprints (Radius=2)
+    - **Nomenclature:** Internal Serial Naming (C-n)
+    """)
