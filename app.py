@@ -87,12 +87,29 @@ with st.sidebar:
     st.caption("Traffic Light Color Scheme")
 
 # --- MODEL LOADING ---
+import os
+import xgboost as xgb
+import numpy as np
+
+MODEL_JSON = "BACE1_trained_model_optimized.json"
+
 @st.cache_resource
 def load_model():
-    with open("BACE1_trained_model_optimized.pkl", "rb") as f:
-        return pickle.load(f)
+    # Path relative to THIS file (works whether app.py is in root or a subfolder)
+    here = os.path.dirname(os.path.abspath(__file__))
+    model_path = os.path.join(here, MODEL_JSON)
+
+    booster = xgb.Booster()
+    booster.load_model(model_path)  # loads JSON/UBJSON model
+    return booster
 
 model = load_model()
+
+def predict_proba_active(X: np.ndarray) -> float:
+    # X shape: (1, n_features)
+    dmat = xgb.DMatrix(X)
+    p = model.predict(dmat)
+    return float(p[0])
 
 # --- PUBCHEM NAME RESOLUTION (RecordTitle preferred; fallback to IUPACName) ---
 @st.cache_data(show_spinner=False, ttl=60 * 60 * 24 * 7)  # cache 7 days
@@ -309,3 +326,4 @@ with t3:
 - **Name Resolution (optional):** PubChem PUG-REST (SMILES→CID, IUPACName) and PUG-View (RecordTitle)
 """
     )
+
