@@ -1,8 +1,0 @@
-streamlit
-pandas
-numpy
-rdkit
-xgboost
-plotly
-matplotlib
-requests
