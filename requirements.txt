@@ -1,9 +1,0 @@
-streamlit
-pandas
-numpy
-rdkit
-xgboost
-plotly
-matplotlib
-streamlit-lottie
-requests
