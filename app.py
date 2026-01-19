@@ -53,24 +53,28 @@ st.markdown(f"""
     """, unsafe_allow_html=True)
 
 # --- UTILITY: NAME RECOGNITION ---
-from urllib.parse import quote  # Add this at the top of your app.py
+import time
+from urllib.parse import quote
 
 def get_compound_name(smiles):
-    try:
-        # 1. URL-encode the SMILES string (fixes characters like #, =, and ())
-        encoded_smi = quote(smiles)
-        url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{encoded_smi}/property/Title/JSON"
-        
-        # 2. Add a 'verify=False' if you are on a restricted network (use with caution)
-        response = requests.get(url, timeout=5)
-        
-        if response.status_code == 200:
-            return response.json()['PropertyTable']['Properties'][0].get('Title', "Unknown")
-        else:
-            return f"Not Found (Code: {response.status_code})"
-    except Exception as e:
-        # This will tell you the ACTUAL error (e.g., Timeout, Connection Refused)
-        return f"Conn Error: {type(e).__name__}"
+    encoded_smi = quote(smiles)
+    url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{encoded_smi}/property/Title/JSON"
+    
+    # Try up to 3 times if the server is busy
+    for attempt in range(3):
+        try:
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                return response.json()['PropertyTable']['Properties'][0].get('Title', "Unknown")
+            elif response.status_code == 503:
+                time.sleep(1)  # Wait 1 second before retrying
+                continue
+            else:
+                return f"Error {response.status_code}"
+        except Exception:
+            time.sleep(1)
+            
+    return "PubChem Busy/Unavailable"
 
 # --- SIDEBAR CONTROLS ---
 with st.sidebar:
