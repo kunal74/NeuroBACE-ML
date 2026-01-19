@@ -30,8 +30,8 @@ else:
 st.markdown(f"""
     <style>
     .stApp {{ background-color: {bg} !important; color: {text} !important; }}
-    [data-testid="stSidebar"] {{ background-color: {bg} !important; border-right: 1px solid {accent}33; }}\n    
-    /* Force text visibility */
+    [data-testid="stSidebar"] {{ background-color: {bg} !important; border-right: 1px solid {accent}33; }}
+    
     h1, h2, h3, h4, label, span, p, [data-testid="stWidgetLabel"] p, .stMarkdown p {{ 
         color: {text} !important; opacity: 1 !important; 
     }}
@@ -78,14 +78,12 @@ def get_base64_image(image_path):
             return f'data:image/png;base64,{data}'
     except: return None
 
-logo_html = ""
-logo_url = get_base64_image("logo.png") # Ensure your image is named 'logo.png'
+logo_url = get_base64_image("logo.png") 
 
-# Using a flexbox container with a 10px gap to reduce space significantly
 if logo_url:
-    logo_html = f'<img src="{logo_url}" width="120" style="margin-right: 10px;">'
+    logo_html = f'<img src="{logo_url}" width="120" style="margin-right: 15px;">'
 else:
-    logo_html = f'<div style="width:100px; height:100px; background:{accent}; border-radius:50%; margin-right: 15px;"></div>'
+    logo_html = f'<div style="width:100px; height:100px; background:{accent}; border-radius:50%; margin-right: 20px;"></div>'
 
 st.markdown(f"""
     <div style="display: flex; align-items: center; margin-bottom: 10px;">
@@ -140,7 +138,12 @@ with t1:
             c3_m.metric("Max Probability", f"{df_res['Inhibition Prob'].max():.2%}")
             
             st.write("---")
-            st.dataframe(df_res.style.background_gradient(subset=['Inhibition Prob'], cmap='RdYlGn'), use_container_width=True)
+            # hide_index=True removes the left index column
+            st.dataframe(
+                df_res.style.background_gradient(subset=['Inhibition Prob'], cmap='RdYlGn'), 
+                use_container_width=True,
+                hide_index=True
+            )
             st.download_button("Export Results", df_res.to_csv(index=False), "NeuroBACE_Report.csv")
 
 with t2:
