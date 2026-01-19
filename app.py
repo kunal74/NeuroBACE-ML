@@ -53,22 +53,24 @@ st.markdown(f"""
     """, unsafe_allow_html=True)
 
 # --- UTILITY: NAME RECOGNITION ---
+from urllib.parse import quote  # Add this at the top of your app.py
+
 def get_compound_name(smiles):
     try:
+        # 1. URL-encode the SMILES string (fixes characters like #, =, and ())
         encoded_smi = quote(smiles)
         url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{encoded_smi}/property/Title/JSON"
+        
+        # 2. Add a 'verify=False' if you are on a restricted network (use with caution)
         response = requests.get(url, timeout=5)
         
         if response.status_code == 200:
             return response.json()['PropertyTable']['Properties'][0].get('Title', "Unknown")
-        elif response.status_code == 404:
-            return "Not in PubChem"
         else:
-            return f"API Error ({response.status_code})"
-    except requests.exceptions.Timeout:
-        return "Search Timeout"
-    except:
-        return "Connection Error"
+            return f"Not Found (Code: {response.status_code})"
+    except Exception as e:
+        # This will tell you the ACTUAL error (e.g., Timeout, Connection Refused)
+        return f"Conn Error: {type(e).__name__}"
 
 # --- SIDEBAR CONTROLS ---
 with st.sidebar:
