@@ -66,18 +66,18 @@ def run_prediction(smiles):
         return round(model.predict_proba(np.array(fp).reshape(1, -1))[0][1], 4)
     return None
 
-# --- HEADER WITH ENLARGED LOGO ---
+# --- HEADER WITH MEDIUM LOGO & REDUCED GAP ---
 logo_path = "logo.png"
 
-# Adjusted column ratio to [2, 6] to accommodate a bigger logo
-head_col1, head_col2 = st.columns([2, 6], vertical_alignment="center")
+# head_col1:head_col2 ratio 1:5 narrows the horizontal gap
+head_col1, head_col2 = st.columns([1, 5], vertical_alignment="center")
 
 with head_col1:
     if os.path.exists(logo_path):
-        # Increased width to 150 for better visibility
-        st.image(logo_path, width=150)
+        # Medium size (120px) for scientific professionalism
+        st.image(logo_path, width=120)
     else:
-        st.markdown(f'<div style="width:120px; height:120px; background:{accent}; border-radius:50%;"></div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="width:100px; height:100px; background:{accent}; border-radius:50%;"></div>', unsafe_allow_html=True)
 
 with head_col2:
     st.title("NeuroBACE-ML")
