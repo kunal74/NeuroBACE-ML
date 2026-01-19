@@ -17,6 +17,7 @@ st.sidebar.title("NeuroBACE-ML")
 theme_choice = st.sidebar.radio("Appearance Mode", ["Dark", "Light"], horizontal=True)
 st.session_state.theme = theme_choice
 
+# Define theme colors
 if st.session_state.theme == 'Dark':
     bg, text, card, accent = "#0f172a", "#f8fafc", "#1e293b", "#38bdf8"
     plotly_temp = "plotly_dark"
@@ -24,6 +25,7 @@ else:
     bg, text, card, accent = "#ffffff", "#000000", "#f1f5f9", "#2563eb"
     plotly_temp = "plotly_white"
 
+# Apply custom CSS
 st.markdown(f"""
     <style>
     .stApp {{ background-color: {bg} !important; color: {text} !important; }}
@@ -44,15 +46,16 @@ st.markdown(f"""
 # --- SIDEBAR CONTROLS ---
 with st.sidebar:
     st.markdown("---")
-    # Updated Label for clear probability logic
+    # Probability Threshold Slider
     threshold = st.slider("Probability Threshold (P ≥ 0.7 = Active)", 0.0, 1.0, 0.70, 0.01)
+    # Clean Version Number
     st.caption("v1.0")
 
 # --- PREDICTION ENGINE ---
 @st.cache_resource
 def load_model():
     try:
-        # Loading the verified .pkl model
+        # Load the pickled model
         with open('BACE1_trained_model_optimized.pkl', 'rb') as f:
             return pickle.load(f)
     except: return None
@@ -63,29 +66,38 @@ def run_prediction(smiles):
     mol = Chem.MolFromSmiles(smiles)
     if mol:
         fp = AllChem.GetMorganFingerprintAsBitVect(mol, radius=2, nBits=2048)
-        # Prediction logic for the pickled XGBoost model
+        # Get probability for class 1 (Active)
         return round(model.predict_proba(np.array(fp).reshape(1, -1))[0][1], 4)
     return None
 
 # --- MAIN DASHBOARD ---
-# Professional Title with Embedded Brain Logo (Fixes FileNotFoundError)
+
+# Header Columns: Logo and Title
 c1, c2 = st.columns([0.1, 0.9])
+
+# Column 1: Embedded Professional Brain SVG Logo
 with c1:
+    # This SVG is embedded directly, fixing the "question mark" issue.
+    # The 'fill="{accent}"' ensures it matches your theme color.
     st.markdown(f"""
-        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: 80px;">
-            <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM13 19H11V17H13V19ZM15.07 11.25L14.17 12.17C13.45 12.9 13 13.5 13 15H11V14.5C11 13.4 11.45 12.4 12.17 11.67L13.41 10.41C13.78 10.05 14 9.55 14 9C14 7.9 13.1 7 12 7C10.9 7 10 7.9 10 9H8C8 6.79 9.79 5 12 5C14.21 5 16 6.79 16 9C16 9.88 15.64 10.68 15.07 11.25Z" fill="{accent}"/>
-            <path d="M12 12C12.5523 12 13 11.5523 13 11C13 10.4477 12.5523 10 12 10C11.4477 10 11 10.4477 11 11C11 11.5523 11.4477 12 12 12Z" fill="{accent}"/>
-        </svg>
+        <div style="display: flex; justify-content: center; align-items: center; height: 100%;">
+            <svg width="70" height="70" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM13.03 19.89C12.7 19.96 12.36 20 12 20C10.28 20 8.68 19.46 7.36 18.54C8.57 17.2 10.21 16.31 12.06 16.04C13.91 15.77 15.82 15.97 17.5 16.61C16.4 18.35 14.87 19.6 13.03 19.89ZM18.93 15.1C17.06 14.26 14.96 14 12.91 14.29C10.86 14.58 8.99 15.53 7.6 17.02C6.24 15.67 5.32 13.89 5.07 11.93C6.54 11.3 8.14 11 9.8 11C11.38 11 12.92 11.27 14.37 11.82C15.82 12.37 17.13 13.23 18.17 14.36C18.48 14.09 18.74 14.35 18.93 15.1ZM19.41 12.69C18.26 11.47 16.84 10.54 15.28 9.95C13.72 9.36 12.07 9.05 10.38 9.05C8.55 9.05 6.8 9.38 5.21 10.05C5.06 9.7 5.01 9.35 5.01 9C5.01 5.13 8.13 2 12 2C15.87 2 19 5.13 19 9C19 10.42 18.58 11.73 17.86 12.84C18.46 12.7 18.98 12.67 19.41 12.69ZM12 4C9.24 4 7 6.24 7 9C7 9.17 7.01 9.34 7.02 9.51C8.11 9.19 9.24 9.02 10.38 9.02C12.21 9.02 13.98 9.37 15.65 10.04C16.47 9.86 17 9.13 17 8.25C17 6.24 14.76 4 12 4Z" fill="{accent}"/>
+            </svg>
+        </div>
     """, unsafe_allow_html=True)
+
+# Column 2: Title and Subtitle
 with c2:
-    st.markdown(f"<h1 style='margin: 0; color: {text};'>NeuroBACE-ML</h1>", unsafe_allow_html=True)
+    st.markdown(f"<h1 style='margin-top: 10px; color: {text};'>NeuroBACE-ML</h1>", unsafe_allow_html=True)
     st.markdown("##### *Precision Platform for BACE1 Inhibitor Discovery*")
 
 st.write("---")
 
-# Material Icons for professional scientific aesthetics
+# Tabs with Material Icons
 t1, t2, t3 = st.tabs([":material/science: Screening Engine", ":material/monitoring: Visual Analytics", ":material/settings: Specifications"])
 
+# --- TAB 1: SCREENING ENGINE ---
 with t1:
     in_type = st.radio("Input Source", ["Manual Entry", "Batch Upload (CSV)"], horizontal=True)
     mols = []
@@ -106,7 +118,7 @@ with t1:
                 p = run_prediction(s)
                 if p is not None:
                     res.append({
-                        "Compounds": f"C-{i+1}", # Serial identifier logic
+                        "Compounds": f"C-{i+1}", # Serial Naming (C-1, C-2...)
                         "Inhibition Prob": p, 
                         "Result": "ACTIVE" if p >= threshold else "INACTIVE",
                         "SMILES": s
@@ -116,15 +128,16 @@ with t1:
             df_res = pd.DataFrame(res)
             st.session_state['results'] = df_res
             
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Molecules", len(df_res))
-            c2.metric("Potent Hits", len(df_res[df_res['Result'] == "ACTIVE"]))
-            c3.metric("Max Probability", f"{df_res['Inhibition Prob'].max():.2%}")
+            c1_m, c2_m, c3_m = st.columns(3)
+            c1_m.metric("Molecules", len(df_res))
+            c2_m.metric("Potent Hits", len(df_res[df_res['Result'] == "ACTIVE"]))
+            c3_m.metric("Max Probability", f"{df_res['Inhibition Prob'].max():.2%}")
             
             st.write("---")
             st.dataframe(df_res.style.background_gradient(subset=['Inhibition Prob'], cmap='RdYlGn'), use_container_width=True)
             st.download_button("Export Results", df_res.to_csv(index=False), "NeuroBACE_Report.csv")
 
+# --- TAB 2: VISUAL ANALYTICS ---
 with t2:
     if 'results' in st.session_state:
         st.markdown("### Predictive Probability Distribution")
@@ -145,10 +158,11 @@ with t2:
         fig.update_layout(xaxis_range=[0, 1])
         st.plotly_chart(fig, use_container_width=True)
 
+# --- TAB 3: SPECIFICATIONS ---
 with t3:
     st.write("### Platform Architecture")
     st.markdown("""
-    - **Architecture:** Optimized XGBoost Framework (Pickle)
+    - **Architecture:** XGBoost Framework (Pickle Serialization)
     - **Optimization:** Bayesian Framework via Optuna
     - **Feature Extraction:** 2048-bit Morgan Fingerprints (Radius=2)
     - **Nomenclature:** Internal Serial Naming (C-n)
