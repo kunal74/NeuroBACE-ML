@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import pickle
+import base64
 from rdkit import Chem
 from rdkit.Chem import AllChem
 import plotly.express as px
@@ -29,12 +30,15 @@ else:
 st.markdown(f"""
     <style>
     .stApp {{ background-color: {bg} !important; color: {text} !important; }}
-    [data-testid="stSidebar"] {{ background-color: {bg} !important; border-right: 1px solid {accent}33; }}
+    [data-testid="stSidebar"] {{ background-color: {bg} !important; border-right: 1px solid {accent}33; }}\n    
+    /* Force text visibility */
     h1, h2, h3, h4, label, span, p, [data-testid="stWidgetLabel"] p, .stMarkdown p {{ 
         color: {text} !important; opacity: 1 !important; 
     }}
+    
     [data-testid="stMetric"] {{ background-color: {card} !important; border: 1px solid {accent}44 !important; border-radius: 12px; }}
     [data-testid="stMetricValue"] div {{ color: {accent} !important; font-weight: bold; }}
+
     .stButton>button {{ 
         background: linear-gradient(90deg, #0ea5e9, #2563eb) !important; 
         color: white !important; font-weight: bold !important; border-radius: 8px !important;
@@ -66,22 +70,34 @@ def run_prediction(smiles):
         return round(model.predict_proba(np.array(fp).reshape(1, -1))[0][1], 4)
     return None
 
-# --- HEADER WITH MEDIUM LOGO & REDUCED GAP ---
-logo_path = "logo.png"
+# --- HEADER WITH TIGHT ALIGNMENT ---
+def get_base64_image(image_path):
+    try:
+        with open(image_path, "rb") as f:
+            data = base64.b64encode(f.read()).decode()
+            return f'data:image/png;base64,{data}'
+    except: return None
 
-# head_col1:head_col2 ratio 1:5 narrows the horizontal gap
-head_col1, head_col2 = st.columns([1, 5], vertical_alignment="center")
+logo_html = ""
+logo_url = get_base64_image("logo.png") # Ensure your image is named 'logo.png'
 
-with head_col1:
-    if os.path.exists(logo_path):
-        # Medium size (120px) for scientific professionalism
-        st.image(logo_path, width=120)
-    else:
-        st.markdown(f'<div style="width:100px; height:100px; background:{accent}; border-radius:50%;"></div>', unsafe_allow_html=True)
+# Using a flexbox container with a 10px gap to reduce space significantly
+if logo_url:
+    logo_html = f'<img src="{logo_url}" width="120" style="margin-right: 10px;">'
+else:
+    logo_html = f'<div style="width:100px; height:100px; background:{accent}; border-radius:50%; margin-right: 15px;"></div>'
 
-with head_col2:
-    st.title("NeuroBACE-ML")
-    st.markdown("##### *Advanced Predictive Framework for BACE1 Inhibition*")
+st.markdown(f"""
+    <div style="display: flex; align-items: center; margin-bottom: 10px;">
+        {logo_html}
+        <div>
+            <h1 style="margin: 0; padding: 0; line-height: 1;">NeuroBACE-ML</h1>
+            <p style="margin: 0; font-weight: 500; font-style: italic; opacity: 0.8; font-size: 1.1rem;">
+                Advanced Predictive Framework for BACE1 Inhibition
+            </p>
+        </div>
+    </div>
+""", unsafe_allow_html=True)
 
 st.write("---")
 
