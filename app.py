@@ -25,7 +25,7 @@ else:
     bg, text, card, accent = "#ffffff", "#000000", "#f1f5f9", "#2563eb"
     plotly_temp = "plotly_white"
 
-# --- CUSTOM STYLING ---
+# --- CUSTOM CSS FOR ALIGNMENT ---
 st.markdown(f"""
     <style>
     .stApp {{ background-color: {bg} !important; color: {text} !important; }}
@@ -41,6 +41,7 @@ st.markdown(f"""
     }}
     #MainMenu, footer {{ visibility: hidden; }}
     
+    /* Header Container for Perfect Alignment */
     .header-container {{
         display: flex;
         align-items: center;
@@ -50,9 +51,10 @@ st.markdown(f"""
     </style>
     """, unsafe_allow_html=True)
 
-# --- SIDEBAR ---
+# --- SIDEBAR CONTROLS ---
 with st.sidebar:
     st.markdown("---")
+    # Calibrated Probability Threshold
     threshold = st.slider("Probability Threshold (P ≥ 0.7 = Active)", 0.0, 1.0, 0.70, 0.01)
     st.caption("v1.0")
 
@@ -60,6 +62,7 @@ with st.sidebar:
 @st.cache_resource
 def load_model():
     try:
+        # Loading the legacy .pkl model
         with open('BACE1_trained_model_optimized.pkl', 'rb') as f:
             return pickle.load(f)
     except: return None
@@ -70,25 +73,35 @@ def run_prediction(smiles):
     mol = Chem.MolFromSmiles(smiles)
     if mol:
         fp = AllChem.GetMorganFingerprintAsBitVect(mol, radius=2, nBits=2048)
+        # Using standard predict_proba for the pickled XGBoost model
         return round(model.predict_proba(np.array(fp).reshape(1, -1))[0][1], 4)
     return None
 
-# --- HEADER WITH CUSTOM LOGO ---
-# To use your image, save it as 'logo.png' in the same folder as this script.
-try:
-    with open("logo.png", "rb") as f:
-        data = base64.b64encode(f.read()).decode()
-    logo_html = f'<img src="data:image/png;base64,{data}" width="85">'
-except:
-    # Fallback to a placeholder if the file is missing
-    logo_html = '<div style="width:85px; height:85px; background:#38bdf8; border-radius:50%;"></div>'
+# --- MAIN DASHBOARD ---
+# Function to encode local image for immediate rendering without FileNotFoundError
+def get_base64_image(image_path):
+    try:
+        with open(image_path, "rb") as f:
+            data = base64.b64encode(f.read()).decode()
+            return f'data:image/png;base64,{data}'
+    except:
+        return None
+
+# Deployment: Save your custom logo as 'logo.png' in the same folder
+logo_base64 = get_base64_image("logo.png")
+
+if logo_base64:
+    logo_html = f'<img src="{logo_base64}" width="85">'
+else:
+    # Fallback to a geometric brain-themed circle if logo is missing
+    logo_html = f'<div style="width:85px; height:85px; background:{accent}; border-radius:50%; display:flex; align-items:center; justify-content:center; color:white; font-weight:bold;">NB</div>'
 
 st.markdown(f"""
     <div class="header-container">
         {logo_html}
-        <h1 style="margin: 0; font-size: 3rem; font-weight: 800; letter-spacing: -1px;">NeuroBACE-ML</h1>
+        <h1 style="margin: 0; padding: 0; font-size: 2.8rem;">NeuroBACE-ML</h1>
     </div>
-    <p style="margin-left: 110px; margin-top: -20px; font-weight: 500; font-style: italic; opacity: 0.8; font-size: 1.1rem;">
+    <p style="margin-left: 110px; margin-top: -20px; font-weight: 500; font-style: italic; opacity: 0.8;">
         Precision Platform for BACE1 Inhibitor Discovery
     </p>
 """, unsafe_allow_html=True)
@@ -97,7 +110,6 @@ st.write("---")
 
 t1, t2, t3 = st.tabs([":material/science: Screening Engine", ":material/monitoring: Visual Analytics", ":material/settings: Specifications"])
 
-# --- TAB 1: SCREENING ENGINE ---
 with t1:
     in_type = st.radio("Input Source", ["Manual Entry", "Batch Upload (CSV)"], horizontal=True)
     mols = []
@@ -118,7 +130,7 @@ with t1:
                 p = run_prediction(s)
                 if p is not None:
                     res.append({
-                        "Compounds": f"C-{i+1}", 
+                        "Compounds": f"C-{i+1}", # Internal serial naming logic
                         "Inhibition Prob": p, 
                         "Result": "ACTIVE" if p >= threshold else "INACTIVE",
                         "SMILES": s
@@ -137,7 +149,6 @@ with t1:
             st.dataframe(df_res.style.background_gradient(subset=['Inhibition Prob'], cmap='RdYlGn'), use_container_width=True)
             st.download_button("Export Results", df_res.to_csv(index=False), "NeuroBACE_Report.csv")
 
-# --- TAB 2: VISUAL ANALYTICS ---
 with t2:
     if 'results' in st.session_state:
         st.markdown("### Predictive Probability Distribution")
@@ -154,15 +165,15 @@ with t2:
             labels={'Inhibition Prob': 'Probability Score'},
             height=max(400, len(data) * 30)
         )
+        
         fig.update_layout(xaxis_range=[0, 1])
         st.plotly_chart(fig, use_container_width=True)
 
-# --- TAB 3: SPECIFICATIONS ---
 with t3:
     st.write("### Platform Architecture")
     st.markdown("""
-    - **Architecture:** XGBoost Framework (Pickle Serialization)
+    - **Architecture:** Optimized XGBoost Framework (Pickle Serialization)
     - **Optimization:** Bayesian Framework via Optuna
     - **Feature Extraction:** 2048-bit Morgan Fingerprints (Radius=2)
-    - **Identification:** Local Serial Naming (C-n)
+    - **Identification:** Internal Serial Naming (C-n)
     """)
