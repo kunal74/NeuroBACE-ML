@@ -55,13 +55,20 @@ st.markdown(f"""
 # --- UTILITY: NAME RECOGNITION ---
 def get_compound_name(smiles):
     try:
-        url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{smiles}/property/Title/JSON"
+        encoded_smi = quote(smiles)
+        url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{encoded_smi}/property/Title/JSON"
         response = requests.get(url, timeout=5)
+        
         if response.status_code == 200:
             return response.json()['PropertyTable']['Properties'][0].get('Title', "Unknown")
-        return "Unknown Ligand"
+        elif response.status_code == 404:
+            return "Not in PubChem"
+        else:
+            return f"API Error ({response.status_code})"
+    except requests.exceptions.Timeout:
+        return "Search Timeout"
     except:
-        return "Novel Molecule"
+        return "Connection Error"
 
 # --- SIDEBAR CONTROLS ---
 with st.sidebar:
