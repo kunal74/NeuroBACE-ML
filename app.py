@@ -37,7 +37,6 @@ st.markdown(f"""
         background: linear-gradient(90deg, #0ea5e9, #2563eb) !important; 
         color: white !important; font-weight: bold !important; border-radius: 8px !important;
     }}
-    img {{ display: none !important; }}
     #MainMenu, footer {{ visibility: hidden; }}
     </style>
     """, unsafe_allow_html=True)
@@ -45,14 +44,13 @@ st.markdown(f"""
 # --- SIDEBAR CONTROLS ---
 with st.sidebar:
     st.markdown("---")
-    threshold = st.slider("Sensitivity Threshold", 0.0, 1.0, 0.70, 0.01)
-    st.caption("v1.5.0 | Pickle Loader & Serial Naming")
+    threshold = st.slider("Probability Threshold (P ≥ 0.7 = Active)", 0.0, 1.0, 0.70, 0.01)
+    st.caption("v1.0")
 
 # --- PREDICTION ENGINE ---
 @st.cache_resource
 def load_model():
     try:
-        # Reverted to use pickle for the .pkl file format
         with open('BACE1_trained_model_optimized.pkl', 'rb') as f:
             return pickle.load(f)
     except: return None
@@ -63,16 +61,30 @@ def run_prediction(smiles):
     mol = Chem.MolFromSmiles(smiles)
     if mol:
         fp = AllChem.GetMorganFingerprintAsBitVect(mol, radius=2, nBits=2048)
-        # Using standard predict_proba for the pickled XGBoost object
         return round(model.predict_proba(np.array(fp).reshape(1, -1))[0][1], 4)
     return None
 
 # --- MAIN DASHBOARD ---
-st.title("🧠 NeuroBACE-ML")
-st.markdown("##### *Advanced Platform for BACE1 Inhibitor Prediction*")
+# Professional Title with Inline SVG Logo
+st.markdown(f"""
+    <div style="display: flex; align-items: center; margin-bottom: 20px;">
+        <svg width="45" height="45" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin-right: 15px;">
+            <path d="M9.5 13C10.3284 13 11 12.3284 11 11.5C11 10.6716 10.3284 10 9.5 10C8.67157 10 8 10.6716 8 11.5C8 12.3284 8.67157 13 9.5 13Z" fill="{accent}"/>
+            <path d="M14.5 13C15.3284 13 16 12.3284 16 11.5C16 10.6716 15.3284 10 14.5 10C13.6716 10 13 10.6716 13 11.5C13 12.3284 13.6716 13 14.5 13Z" fill="{accent}"/>
+            <path d="M12 16C12.8284 16 13.5 15.3284 13.5 14.5C13.5 13.6716 12.8284 13 12 13C11.1716 13 10.5 13.6716 10.5 14.5C10.5 15.3284 11.1716 16 12 16Z" fill="{accent}"/>
+            <path d="M12 9C12.8284 9 13.5 8.32843 13.5 7.5C13.5 6.67157 12.8284 6 12 6C11.1716 6 10.5 6.67157 10.5 7.5C10.5 8.32843 11.1716 9 12 9Z" fill="{accent}"/>
+            <path d="M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="{accent}" stroke-width="1.5"/>
+            <path d="M9.5 11.5L12 7.5L14.5 11.5L12 14.5L9.5 11.5Z" stroke="{accent}" stroke-width="1" stroke-dasharray="2 2"/>
+        </svg>
+        <h1 style="margin: 0; font-weight: 800; letter-spacing: -1px; color: {text};">NeuroBACE-ML</h1>
+    </div>
+""", unsafe_allow_html=True)
+
+st.markdown("##### *Precision Platform for BACE1 Inhibitor Discovery*")
 st.write("---")
 
-t1, t2, t3 = st.tabs(["🚀 Screening Engine", "📊 Visual Analytics", "🔬 Specifications"])
+# Using modern Material Icons for Tabs
+t1, t2, t3 = st.tabs([":material/science: Screening Engine", ":material/monitoring: Visual Analytics", ":material/settings: Specifications"])
 
 with t1:
     in_type = st.radio("Input Source", ["Manual Entry", "Batch Upload (CSV)"], horizontal=True)
@@ -94,7 +106,7 @@ with t1:
                 p = run_prediction(s)
                 if p is not None:
                     res.append({
-                        "Compounds": f"C-{i+1}", # Serial naming logic
+                        "Compounds": f"C-{i+1}", 
                         "Inhibition Prob": p, 
                         "Result": "ACTIVE" if p >= threshold else "INACTIVE",
                         "SMILES": s
@@ -120,7 +132,7 @@ with t2:
         
         fig = px.bar(
             data, 
-            y='Compounds', # Using serial names for visualization
+            y='Compounds', 
             x='Inhibition Prob', 
             orientation='h',
             color='Inhibition Prob',
