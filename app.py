@@ -102,60 +102,17 @@ def guess_smiles_column(columns):
     return cols[0] if cols else None
 
 # -----------------------
-# PubChem (fast + robust)
-# Uses official PUG-REST + PUG-View endpoints.
-# -----------------------
-from urllib.parse import quote
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-import requests
-
-def build_pubchem_session():
-    s = requests.Session()
-    s.headers.update({"User-Agent": "NeuroBACE-ML/1.0"})
-    retry = Retry(
-        total=4,
-        backoff_factor=0.8,  # 0.8s, 1.6s, 3.2s...
-        status_forcelist=[429, 500, 502, 503, 504],
-        allowed_methods=["GET"],
-        respect_retry_after_header=True,
-        raise_on_status=False,
-    )
-    s.mount("https://", HTTPAdapter(max_retries=retry))
-    return s
-
-PUBCHEM_SESSION = build_pubchem_session()
-
-@st.cache_data(show_spinner=False, ttl=60 * 60 * 24 * 7)
-def get_compound_name(smiles: str, timeout: int = 6):
-    """
-    Returns: (name, cid, source, error)
-    - Uses PubChem PUG-REST Title (fast, single call).
-    - Robust to HTTP 503/429 via retries + backoff.
-    """
+# --- UTILITY: NAME RECOGNITION ---
+# # -----------------------
+def get_compound_name(smiles):
     try:
-        enc = quote(smiles, safe="")  # IMPORTANT: URL-encode SMILES
-        url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{enc}/property/Title/JSON"
-        r = PUBCHEM_SESSION.get(url, timeout=timeout)
-
-        if r.status_code == 200:
-            data = r.json()
-            props = data.get("PropertyTable", {}).get("Properties", [])
-            title = props[0].get("Title") if props else None
-            if isinstance(title, str) and title.strip():
-                return title.strip(), None, "Title", ""
-            return "Unknown", None, "None", "No Title returned (200 OK)"
-
-        # Common transient cases
-        if r.status_code == 503:
-            return "Unknown", None, "None", "PubChem temporarily unavailable (HTTP 503). Retry later."
-        if r.status_code == 429:
-            return "Unknown", None, "None", "Rate-limited by PubChem (HTTP 429). Reduce requests and retry."
-
-        return "Unknown", None, "None", f"PubChem error: HTTP {r.status_code}"
-
-    except Exception as e:
-        return "Unknown", None, "None", f"{type(e).__name__}: {e}"
+        url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{smiles}/property/Title/JSON"
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            return response.json()['PropertyTable']['Properties'][0].get('Title', "Unknown")
+        return "Unknown Ligand"
+    except:
+        return "Novel Molecule"
 
 # -----------------------
 # Sidebar
