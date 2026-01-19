@@ -1,5 +1,7 @@
 import os
 import pickle
+import time
+from typing import Optional, Tuple
 from urllib.parse import quote
 
 import numpy as np
@@ -12,109 +14,52 @@ import xgboost as xgb
 from rdkit import Chem, DataStructs
 from rdkit.Chem import rdFingerprintGenerator
 
-# --------------------------------------------------------------------------------------
+
+# =========================
 # Configuration
-# --------------------------------------------------------------------------------------
+# =========================
 MODEL_JSON = "BACE1_trained_model_optimized.json"
 MODEL_PKL = "BACE1_trained_model_optimized.pkl"
+
 FP_BITS = 2048
 FP_RADIUS = 2
-PUBCHEM_TITLE_URL = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{}/property/Title/JSON"
 
-# Global Morgan fingerprint generator (RDKit recommended API)
+# PubChem endpoints
+PUGREST_SMILES_TO_CIDS = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{}/cids/TXT"
+PUGVIEW_COMPOUND_JSON = "https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data/compound/{}/JSON/?response_type=display"
+PUGREST_CID_IUPAC_JSON = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{}/property/IUPACName/JSON"
+
+# RDKit fingerprint generator
 FPGEN = rdFingerprintGenerator.GetMorganGenerator(radius=FP_RADIUS, fpSize=FP_BITS)
 
-
-# --------------------------------------------------------------------------------------
-# Theme and layout
-# --------------------------------------------------------------------------------------
-st.set_page_config(page_title="NeuroBACE-ML", page_icon="🧠", layout="wide")
-
-if "theme" not in st.session_state:
-    st.session_state.theme = "Dark"
-
-st.sidebar.title("NeuroBACE-ML")
-st.session_state.theme = st.sidebar.radio("Appearance Mode", ["Dark", "Light"], horizontal=True)
-
-if st.session_state.theme == "Dark":
-    bg, text, card, accent = "#0f172a", "#f8fafc", "#1e293b", "#38bdf8"
-    plotly_template = "plotly_dark"
-else:
-    bg, text, card, accent = "#ffffff", "#0b1220", "#f1f5f9", "#2563eb"
-    plotly_template = "plotly_white"
-
-st.markdown(
-    f"""
-    <style>
-      .stApp {{ background-color: {bg} !important; color: {text} !important; }}
-      [data-testid="stSidebar"] {{ background-color: {bg} !important; border-right: 1px solid {accent}33; }}
-
-      h1, h2, h3, h4, label, span, p, [data-testid="stWidgetLabel"] p, .stMarkdown p {{
-        color: {text} !important;
-        opacity: 1 !important;
-      }}
-
-      [data-testid="stMetric"] {{
-        background-color: {card} !important;
-        border: 1px solid {accent}44 !important;
-        border-radius: 12px;
-      }}
-
-      [data-testid="stMetricValue"] div {{ color: {accent} !important; font-weight: 700; }}
-
-      .stButton>button {{
-        background: linear-gradient(90deg, #0ea5e9, #2563eb) !important;
-        color: white !important;
-        font-weight: 700 !important;
-        border-radius: 8px !important;
-      }}
-
-      #MainMenu, footer {{ visibility: hidden; }}
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+# requests session (re-use TCP)
+SESSION = requests.Session()
+SESSION.headers.update({"User-Agent": "NeuroBACE-ML/1.0"})
 
 
-# --------------------------------------------------------------------------------------
-# Helpers
-# --------------------------------------------------------------------------------------
-@st.cache_data(show_spinner=False)
-def get_compound_name_pubchem(smiles: str) -> str:
-    """Resolve a SMILES to a PubChem Title.
+# =========================
+# Streamlit page
+# =========================
+st.set_page_config(page_title="NeuroBACE-ML", layout="wide")
 
-    Important: SMILES must be URL encoded.
-    """
-    try:
-        encoded = quote(smiles, safe="")
-        url = PUBCHEM_TITLE_URL.format(encoded)
-        r = requests.get(url, timeout=7)
-        if r.status_code != 200:
-            return "Unknown"
-        data = r.json()
-        props = data.get("PropertyTable", {}).get("Properties", [])
-        if not props:
-            return "Unknown"
-        return props[0].get("Title", "Unknown") or "Unknown"
-    except Exception:
-        return "Unknown"
+st.title("NeuroBACE-ML: BACE1 Inhibition Probability Predictor")
+st.caption("Input SMILES and get an ML-based probability score and hit calling.")
+
+with st.sidebar:
+    st.subheader("Controls")
+    threshold = st.slider("Probability threshold (ACTIVE if ≥ threshold)", 0.0, 1.0, 0.70, 0.01)
+    fetch_names = st.checkbox("Fetch compound names from PubChem", value=True)
+    st.caption("If PubChem does not resolve a name, it will remain as Unknown.")
 
 
-def guess_smiles_column(columns) -> str | None:
-    for c in columns:
-        if str(c).strip().lower() in {"smiles", "smile"}:
-            return c
-    for c in columns:
-        if "smiles" in str(c).strip().lower():
-            return c
-    return None
-
-
+# =========================
+# Model loading
+# =========================
 @st.cache_resource
 def load_model_bundle():
-    """Load the trained model.
-
-    Preferred: XGBoost native model JSON to avoid pickle and sklearn version coupling.
+    """
+    Prefer XGBoost native JSON model for deployment stability.
+    Fall back to pickle when JSON is not present.
     """
     if os.path.exists(MODEL_JSON):
         booster = xgb.Booster()
@@ -124,7 +69,6 @@ def load_model_bundle():
     if os.path.exists(MODEL_PKL):
         with open(MODEL_PKL, "rb") as f:
             obj = pickle.load(f)
-        # Try to extract a booster if it is an sklearn wrapper
         if hasattr(obj, "get_booster"):
             try:
                 booster = obj.get_booster()
@@ -136,7 +80,40 @@ def load_model_bundle():
     return None
 
 
-def featurize_smiles(smiles: str):
+def predict_probability(model_bundle, X: np.ndarray) -> float:
+    kind = model_bundle["kind"]
+    model = model_bundle["model"]
+
+    if kind == "booster":
+        dmat = xgb.DMatrix(X)
+        p = model.predict(dmat)
+        return float(p[0])
+
+    # Fallback for sklearn-like models
+    if hasattr(model, "predict_proba"):
+        p = model.predict_proba(X)
+        return float(p[0][1])
+
+    if hasattr(model, "predict"):
+        p = model.predict(X)
+        return float(p[0])
+
+    raise RuntimeError("Loaded model does not support probability prediction.")
+
+
+model_bundle = load_model_bundle()
+if model_bundle is None:
+    st.error(
+        "Model not found. Upload the model file(s) to the same folder as app.py.\n\n"
+        f"Expected: {MODEL_JSON} (preferred) or {MODEL_PKL} (fallback)."
+    )
+    st.stop()
+
+
+# =========================
+# Chemistry helpers
+# =========================
+def featurize_smiles(smiles: str) -> Tuple[Optional[np.ndarray], Optional[str]]:
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
         return None, "Invalid SMILES"
@@ -150,104 +127,154 @@ def featurize_smiles(smiles: str):
         return None, f"RDKit error: {e}"
 
 
-def predict_probability(model_bundle, X: np.ndarray):
-    """Return probability of the positive class (Active)."""
-    kind = model_bundle.get("kind")
-    model = model_bundle.get("model")
-
-    if kind == "booster":
-        dm = xgb.DMatrix(X)
-        p = model.predict(dm)
-        return float(p[0])
-
-    # Fallback: pickle may contain XGBClassifier or similar
-    if hasattr(model, "predict_proba"):
-        p = model.predict_proba(X)
-        return float(p[0][1])
-
-    if hasattr(model, "predict"):
-        p = model.predict(X)
-        # If predict returns probability-like output
-        try:
-            return float(p[0])
-        except Exception:
-            return float(p)
-
-    raise RuntimeError("Loaded model does not support prediction.")
+def guess_smiles_column(columns) -> Optional[str]:
+    # exact common names first
+    for c in columns:
+        if str(c).strip().lower() in {"smiles", "smile"}:
+            return c
+    # then partial match
+    for c in columns:
+        if "smiles" in str(c).strip().lower():
+            return c
+    return None
 
 
-# --------------------------------------------------------------------------------------
-# Sidebar controls
-# --------------------------------------------------------------------------------------
-with st.sidebar:
-    st.markdown("---")
-    threshold = st.slider("Probability threshold (Active if >= threshold)", 0.0, 1.0, 0.70, 0.01)
-    fetch_names = st.checkbox("Fetch compound names from PubChem", value=True)
-    st.caption("NeuroBACE-ML app")
+# =========================
+# PubChem name resolution
+# RecordTitle preferred, fallback to IUPACName
+# =========================
+@st.cache_data(show_spinner=False, ttl=60 * 60 * 24 * 7)  # 7 days
+def pubchem_smiles_to_cid(smiles: str) -> Optional[int]:
+    try:
+        enc = quote(smiles, safe="")
+        url = PUGREST_SMILES_TO_CIDS.format(enc)
+        r = SESSION.get(url, timeout=10)
+        if r.status_code != 200:
+            return None
+        txt = (r.text or "").strip()
+        if not txt:
+            return None
+        # TXT may contain multiple CIDs, take the first
+        first = txt.splitlines()[0].strip()
+        return int(first)
+    except Exception:
+        return None
 
 
-# --------------------------------------------------------------------------------------
-# Main UI
-# --------------------------------------------------------------------------------------
-st.title("NeuroBACE-ML")
-st.markdown("Advanced platform for BACE1 inhibitor probability prediction")
-st.write("---")
+@st.cache_data(show_spinner=False, ttl=60 * 60 * 24 * 7)
+def pubchem_record_title(cid: int) -> Optional[str]:
+    """
+    PUG-View compound record typically contains RecordTitle.
+    """
+    try:
+        url = PUGVIEW_COMPOUND_JSON.format(cid)
+        r = SESSION.get(url, timeout=10)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        title = data.get("RecordTitle")
+        if isinstance(title, str) and title.strip():
+            return title.strip()
+        return None
+    except Exception:
+        return None
 
-model_bundle = load_model_bundle()
-if model_bundle is None:
-    st.error(
-        "Model file not found. Upload the model file to the same folder as app.py. "
-        f"Expected: {MODEL_JSON} (preferred) or {MODEL_PKL}."
-    )
-    st.stop()
+
+@st.cache_data(show_spinner=False, ttl=60 * 60 * 24 * 7)
+def pubchem_iupac_name(cid: int) -> Optional[str]:
+    try:
+        url = PUGREST_CID_IUPAC_JSON.format(cid)
+        r = SESSION.get(url, timeout=10)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        props = data.get("PropertyTable", {}).get("Properties", [])
+        if not props:
+            return None
+        name = props[0].get("IUPACName")
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+        return None
+    except Exception:
+        return None
 
 
-t1, t2, t3 = st.tabs(["Screening", "Visual analytics", "Specifications"])
+def resolve_compound_name(smiles: str) -> str:
+    """
+    Prefer PubChem RecordTitle, fallback to IUPACName.
+    If PubChem cannot resolve, return Unknown.
+    """
+    cid = pubchem_smiles_to_cid(smiles)
+    if cid is None:
+        return "Unknown"
 
-with t1:
-    in_type = st.radio("Input source", ["Manual entry", "Batch upload (CSV)"], horizontal=True)
+    title = pubchem_record_title(cid)
+    if title:
+        return title
+
+    iupac = pubchem_iupac_name(cid)
+    if iupac:
+        return iupac
+
+    return "Unknown"
+
+
+# =========================
+# UI: Input
+# =========================
+tab1, tab2, tab3 = st.tabs(["Screening", "Visual analytics", "About"])
+
+with tab1:
+    mode = st.radio("Input mode", ["Manual entry", "Batch upload (CSV)"], horizontal=True)
 
     smiles_list = []
     uploaded_df = None
 
-    if in_type == "Manual entry":
-        default_smiles = "CC(=O)OC1=CC=CC=C1C(=O)O"  # aspirin (valid example)
-        raw = st.text_area("SMILES (one per line)", default_smiles, height=140)
+    if mode == "Manual entry":
+        st.write("Enter one SMILES per line.")
+        default_smiles = "CC(=O)OC1=CC=CC=C1C(=O)O"  # Aspirin example
+        raw = st.text_area("SMILES", default_smiles, height=140)
         smiles_list = [s.strip() for s in raw.splitlines() if s.strip()]
     else:
-        f = st.file_uploader("Upload a CSV file", type=["csv"])
+        f = st.file_uploader("Upload CSV", type=["csv"])
         if f is not None:
             uploaded_df = pd.read_csv(f)
-            col_guess = guess_smiles_column(uploaded_df.columns)
-            col = st.selectbox(
-                "Select the SMILES column",
-                options=list(uploaded_df.columns),
-                index=list(uploaded_df.columns).index(col_guess) if col_guess in list(uploaded_df.columns) else 0,
-            )
+            guess = guess_smiles_column(uploaded_df.columns)
+            cols = list(uploaded_df.columns)
+            idx = cols.index(guess) if guess in cols else 0
+            col = st.selectbox("Select SMILES column", options=cols, index=idx)
             smiles_list = uploaded_df[col].astype(str).tolist()
 
-    col_btn1, col_btn2 = st.columns([1, 1])
-    with col_btn1:
-        start = st.button("Start virtual screening")
-    with col_btn2:
-        if st.button("Clear results"):
-            st.session_state.pop("results", None)
+    colA, colB = st.columns([1, 1])
+    with colA:
+        run_btn = st.button("Start screening")
+    with colB:
+        clear_btn = st.button("Clear results")
 
-    if start:
+    if clear_btn:
+        st.session_state.pop("results", None)
+        st.success("Cleared.")
+
+    if run_btn:
         if not smiles_list:
             st.warning("No SMILES provided.")
         else:
             rows = []
             prog = st.progress(0)
 
+            # small pause helps avoid PubChem throttling during large batch runs
+            # while still feeling responsive.
             for i, s in enumerate(smiles_list):
                 s = str(s).strip()
                 X, err = featurize_smiles(s)
 
                 if err is not None:
+                    name = "Unknown"
+                    if fetch_names:
+                        name = resolve_compound_name(s)
                     rows.append(
                         {
-                            "Compound Name": "Unknown" if not fetch_names else get_compound_name_pubchem(s),
+                            "Compound Name": name,
                             "SMILES": s,
                             "Inhibition Prob": np.nan,
                             "Result": "INVALID",
@@ -257,7 +284,10 @@ with t1:
                 else:
                     try:
                         prob = predict_probability(model_bundle, X)
-                        name = "Unknown" if not fetch_names else get_compound_name_pubchem(s)
+                        name = "Unknown"
+                        if fetch_names:
+                            name = resolve_compound_name(s)
+
                         rows.append(
                             {
                                 "Compound Name": name,
@@ -268,9 +298,12 @@ with t1:
                             }
                         )
                     except Exception as e:
+                        name = "Unknown"
+                        if fetch_names:
+                            name = resolve_compound_name(s)
                         rows.append(
                             {
-                                "Compound Name": "Unknown" if not fetch_names else get_compound_name_pubchem(s),
+                                "Compound Name": name,
                                 "SMILES": s,
                                 "Inhibition Prob": np.nan,
                                 "Result": "ERROR",
@@ -280,41 +313,33 @@ with t1:
 
                 prog.progress((i + 1) / max(1, len(smiles_list)))
 
+                if fetch_names:
+                    time.sleep(0.05)
+
             df_res = pd.DataFrame(rows)
             st.session_state["results"] = df_res
 
             valid = df_res[df_res["Result"].isin(["ACTIVE", "INACTIVE"])].copy()
-            invalid_count = int((df_res["Result"] == "INVALID").sum())
-            error_count = int((df_res["Result"] == "ERROR").sum())
+            invalid_or_error = int((df_res["Result"].isin(["INVALID", "ERROR"])).sum())
 
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Input molecules", len(df_res))
+            c1.metric("Total inputs", len(df_res))
             c2.metric("Valid predictions", len(valid))
-            c3.metric("ACTIVE calls", int((valid["Result"] == "ACTIVE").sum()))
-            c4.metric("Invalid or errors", invalid_count + error_count)
+            c3.metric("ACTIVE calls", int((valid["Result"] == "ACTIVE").sum()) if len(valid) else 0)
+            c4.metric("Invalid or errors", invalid_or_error)
 
-            if len(valid) == 0:
-                st.warning("No valid molecules could be processed. Check SMILES formatting.")
-            else:
-                max_prob = float(valid["Inhibition Prob"].max())
-                st.info(f"Max predicted probability (valid only): {max_prob:.3f}")
-
-            st.write("---")
-
-            # Table with a red-yellow-green gradient for probabilities
-            styled = df_res.style.format({"Inhibition Prob": "{:.4f}"}).background_gradient(
-                subset=["Inhibition Prob"], cmap="RdYlGn"
-            )
-            st.dataframe(styled, use_container_width=True)
+            st.subheader("Results")
+            st.dataframe(df_res, use_container_width=True)
 
             st.download_button(
-                "Export results (CSV)",
+                "Download results CSV",
                 data=df_res.to_csv(index=False).encode("utf-8"),
                 file_name="NeuroBACE_Report.csv",
                 mime="text/csv",
             )
 
-with t2:
+
+with tab2:
     if "results" not in st.session_state:
         st.info("Run screening first to see analytics.")
     else:
@@ -324,47 +349,53 @@ with t2:
         if valid.empty:
             st.warning("No valid predictions available for analytics.")
         else:
-            st.markdown("### Probability distribution")
+            st.subheader("Predictive Probability Distribution")
             fig_hist = px.histogram(
                 valid,
                 x="Inhibition Prob",
                 nbins=30,
-                template=plotly_template,
                 range_x=[0, 1],
-                labels={"Inhibition Prob": "Predicted probability"},
+                labels={"Inhibition Prob": "Probability"},
             )
             st.plotly_chart(fig_hist, use_container_width=True)
 
-            st.markdown("### Top predicted molecules")
-            top_n = min(25, len(valid))
-            top = valid.sort_values("Inhibition Prob", ascending=False).head(top_n)
+            st.subheader("Top predicted molecules (color-coded)")
+            top_n = min(20, len(valid))
+            top = valid.sort_values("Inhibition Prob", ascending=False).head(top_n).copy()
 
+            # bar chart with continuous color scale (red low -> green high)
+            top = top.sort_values("Inhibition Prob", ascending=True)
             fig_bar = px.bar(
-                top.sort_values("Inhibition Prob", ascending=True),
+                top,
                 y="Compound Name",
                 x="Inhibition Prob",
                 orientation="h",
-                template=plotly_template,
+                color="Inhibition Prob",
                 range_x=[0, 1],
-                labels={"Inhibition Prob": "Predicted probability"},
+                color_continuous_scale="RdYlGn",
+                labels={"Inhibition Prob": "Probability", "Compound Name": "Compound"},
             )
+            fig_bar.update_layout(coloraxis_colorbar_title="Probability")
             st.plotly_chart(fig_bar, use_container_width=True)
 
-            st.markdown("### ACTIVE calls (filtered)")
+            st.subheader("ACTIVE calls only")
             hits = valid[valid["Result"] == "ACTIVE"].sort_values("Inhibition Prob", ascending=False)
             st.dataframe(hits, use_container_width=True)
 
-with t3:
-    st.write("### Platform architecture")
+
+with tab3:
     st.markdown(
         """
-- Model: XGBoost binary classifier (native model format preferred)
-- Featurization: Morgan fingerprints, 2048-bit, radius 2
-- Output: predicted probability for BACE1 inhibition class
-- Optional name resolution: PubChem PUG REST (Title property)
+### What the app does
+- Converts SMILES into Morgan fingerprints (radius 2, 2048 bits).
+- Predicts the probability of BACE1 inhibition using a trained XGBoost model.
+- Optionally resolves compound names using PubChem:
+  - Prefer **RecordTitle** from PUG-View
+  - Fallback to **IUPACName** from PUG-REST
 
-Notes
-- The probability is a machine learning score, not an experimental potency value.
-- If your input molecule is outside the training chemical space, the score may be less reliable.
-        """
+### Notes
+- “Probability” is a model score, not experimental potency.
+- PubChem naming can return Unknown when no CID is found or when a record has no title.
+
+"""
     )
