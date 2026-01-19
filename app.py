@@ -14,7 +14,7 @@ from rdkit import Chem, DataStructs
 from rdkit.Chem import AllChem
 
 # -----------------------
-# Page
+# Page Configuration
 # -----------------------
 st.set_page_config(page_title="NeuroBACE-ML", page_icon="🧠", layout="wide")
 st.title("🧠 NeuroBACE-ML")
@@ -22,7 +22,7 @@ st.caption("BACE1 inhibition probability prediction for small molecules (SMILES 
 st.write("---")
 
 # -----------------------
-# Constants / files
+# Constants / Files
 # -----------------------
 MODEL_JSON = "BACE1_trained_model_optimized.json"
 MODEL_PKL = "BACE1_trained_model_optimized.pkl"
@@ -33,7 +33,34 @@ def local_path(filename: str) -> str:
     return os.path.join(here, filename)
 
 # -----------------------
-# Model load (JSON Booster first; PKL fallback)
+# Utility: PubChem & Naming (FIXED)
+# -----------------------
+@st.cache_data(show_spinner=False)
+def resolve_name(smiles):
+    """Fetches Compound Name and CID from PubChem REST API."""
+    try:
+        escaped_smiles = quote(smiles)
+        url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{escaped_smiles}/property/Title,CID/JSON"
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            props = response.json()['PropertyTable']['Properties'][0]
+            cid = props.get('CID', None)
+            name = props.get('Title', "Unknown Ligand")
+            return name, cid, "PubChem", ""
+        return "Unknown", None, "None", "Molecule not found in PubChem"
+    except Exception as e:
+        return "Novel Molecule", None, "None", str(e)
+
+def pubchem_connectivity_test():
+    """Checks if the server can reach PubChem."""
+    try:
+        response = requests.get("https://pubchem.ncbi.nlm.nih.gov", timeout=3)
+        return response.status_code == 200
+    except:
+        return False
+
+# -----------------------
+# Model Loading
 # -----------------------
 @st.cache_resource
 def load_model_bundle():
@@ -49,38 +76,27 @@ def load_model_bundle():
         with open(pkl_path, "rb") as f:
             obj = pickle.load(f)
         return {"kind": "pkl", "model": obj, "path": pkl_path}
-
     return None
 
 model_bundle = load_model_bundle()
 if model_bundle is None:
-    st.error(
-        f"Model not found. Upload {MODEL_JSON} (recommended) to the SAME folder as app.py in GitHub."
-    )
+    st.error(f"Model not found. Ensure {MODEL_JSON} is in the same directory.")
     st.stop()
 
 def predict_active_prob(model_bundle, X: np.ndarray) -> float:
-    """
-    Booster (.json): Booster.predict(DMatrix) -> positive-class probability for binary:logistic models.
-    PKL (sklearn-like): predict_proba if present.
-    """
     kind = model_bundle["kind"]
     model = model_bundle["model"]
-
     if kind == "booster":
         dmat = xgb.DMatrix(X)
         p = model.predict(dmat)
         return float(p[0])
-
     if hasattr(model, "predict_proba"):
         p = model.predict_proba(X)
         return float(p[0][1])
-
-    p = model.predict(X)
-    return float(p[0])
+    return float(model.predict(X)[0])
 
 # -----------------------
-# Featurization (Morgan 2048)
+# Featurization
 # -----------------------
 def featurize(smiles: str):
     mol = Chem.MolFromSmiles(smiles)
@@ -92,36 +108,9 @@ def featurize(smiles: str):
     return arr.reshape(1, -1), ""
 
 def guess_smiles_column(columns):
-    cols = list(columns)
-    for c in cols:
-        if str(c).strip().lower() in {"smiles", "smile"}:
-            return c
-    for c in cols:
-        if "smiles" in str(c).strip().lower():
-            return c
-    return cols[0] if cols else None
-
-# -----------------------
-# --- UTILITY: NAME RECOGNITION ---
-# # -----------------------
-@st.cache_data(show_spinner=False)
-def resolve_name(smiles):
-    """Fetches the compound name and CID from PubChem."""
-    try:
-        # Encode SMILES for URL
-        escaped_smiles = quote(smiles)
-        url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{escaped_smiles}/property/Title/JSON"
-        response = requests.get(url, timeout=5)
-        
-        if response.status_code == 200:
-            data = response.json()
-            props = data['PropertyTable']['Properties'][0]
-            cid = props.get('CID', "None")
-            name = props.get('Title', "Unknown")
-            return name, cid, "PubChem", ""
-        return "Unknown", None, "None", "Not found in PubChem"
-    except Exception as e:
-        return "Unknown", None, "None", str(e)
+    for c in columns:
+        if str(c).strip().lower() in {"smiles", "smile"}: return c
+    return columns[0] if len(columns) > 0 else None
 
 # -----------------------
 # Sidebar
@@ -131,24 +120,19 @@ with st.sidebar:
     threshold = st.slider("ACTIVE if probability ≥", 0.0, 1.0, 0.70, 0.01)
 
     st.subheader("PubChem naming")
-    enable_naming = st.checkbox("Enable PubChem naming (optional)", value=False)
-    auto_resolve = st.checkbox("Auto-resolve after screening", value=False)
+    enable_naming = st.checkbox("Enable PubChem naming", value=True)
+    auto_resolve = st.checkbox("Auto-resolve after screening", value=True)
     resolve_scope = st.radio("Resolve names for", ["Top hits only", "All molecules"], index=0)
-    top_n = st.slider("Top N (if Top hits only)", 5, 200, 25, 5)
+    top_n = st.slider("Top N hits", 5, 200, 25, 5)
 
     if st.button("Test PubChem connectivity"):
-        ok = pubchem_connectivity_test()
-        if ok:
-            st.success("PubChem reachable from this server.")
+        if pubchem_connectivity_test():
+            st.success("PubChem reachable.")
         else:
-            st.error("PubChem NOT reachable from this server.")
-
-    if st.button("Clear PubChem cache"):
-        st.cache_data.clear()
-        st.success("Cleared PubChem cache.")
+            st.error("PubChem NOT reachable.")
 
 # -----------------------
-# Tabs
+# Main Logic
 # -----------------------
 tab1, tab2 = st.tabs(["🚀 Screening", "📈 Visual analytics"])
 
@@ -161,145 +145,50 @@ with tab1:
         smiles_list = [s.strip() for s in raw.splitlines() if s.strip()]
     else:
         f = st.file_uploader("Upload CSV", type=["csv"])
-        if f is not None:
+        if f:
             df_in = pd.read_csv(f)
-            guess = guess_smiles_column(df_in.columns)
-            cols = list(df_in.columns)
-            idx = cols.index(guess) if guess in cols else 0
-            col = st.selectbox("Select SMILES column", options=cols, index=idx)
+            col = st.selectbox("Select SMILES column", options=df_in.columns, index=0)
             smiles_list = df_in[col].astype(str).tolist()
 
-    c1, c2, c3 = st.columns([1, 1, 1])
-    run_btn = c1.button("Start Virtual Screening")
-    clear_btn = c2.button("Clear Results")
-    resolve_btn = c3.button("Resolve Names (PubChem)")
-
-    if clear_btn:
-        st.session_state.pop("results", None)
-        st.success("Cleared results.")
-
-    # Run screening (FAST: no PubChem calls here)
-    if run_btn:
-        if not smiles_list:
-            st.warning("No SMILES provided.")
-        else:
-            with st.spinner("Running predictions..."):
-                rows = []
-                prog = st.progress(0)
-
-                for i, smi in enumerate(smiles_list):
-                    smi = str(smi).strip()
-                    X, ferr = featurize(smi)
-
-                    if ferr:
-                        rows.append({
-                            "Compound Name": "Unknown",
-                            "SMILES": smi,
-                            "Inhibition Prob": np.nan,
-                            "Result": "INVALID",
-                            "PubChem CID": None,
-                            "Name Source": "None",
-                            "Name Error": ferr
-                        })
-                    else:
-                        prob = predict_active_prob(model_bundle, X)
-                        rows.append({
-                            "Compound Name": "Unknown",
-                            "SMILES": smi,
-                            "Inhibition Prob": float(round(prob, 6)),
-                            "Result": "ACTIVE" if prob >= threshold else "INACTIVE",
-                            "PubChem CID": None,
-                            "Name Source": "None",
-                            "Name Error": ""
-                        })
-
-                    prog.progress((i + 1) / max(1, len(smiles_list)))
-
-                st.session_state["results"] = pd.DataFrame(rows)
-
-            # Optional auto-resolve (still after results exist)
-            if enable_naming and auto_resolve:
-                resolve_btn = True
-
-    # Resolve names (only when requested or auto)
-    if resolve_btn and enable_naming and "results" in st.session_state:
-        df_work = st.session_state["results"].copy()
-        df_valid = df_work[df_work["Result"].isin(["ACTIVE", "INACTIVE"])].copy()
-
-        if df_valid.empty:
-            st.warning("No valid predictions to resolve.")
-        else:
-            if resolve_scope == "Top hits only":
-                target = df_valid.sort_values("Inhibition Prob", ascending=False).head(top_n)
-                idxs = list(target.index)
+    run_btn = st.button("Start Virtual Screening")
+    
+    if run_btn and smiles_list:
+        rows = []
+        prog = st.progress(0)
+        for i, smi in enumerate(smiles_list):
+            X, ferr = featurize(smi)
+            if ferr:
+                rows.append({"Compound Name": "Error", "SMILES": smi, "Inhibition Prob": np.nan, "Result": "INVALID", "Name Error": ferr})
             else:
-                idxs = list(df_valid.index)
+                prob = predict_active_prob(model_bundle, X)
+                # Initial name is Unknown; will be updated if auto_resolve is on
+                rows.append({
+                    "Compound Name": "Unknown", 
+                    "SMILES": smi, 
+                    "Inhibition Prob": round(prob, 6), 
+                    "Result": "ACTIVE" if prob >= threshold else "INACTIVE",
+                    "PubChem CID": None, "Name Source": "None", "Name Error": ""
+                })
+            prog.progress((i + 1) / len(smiles_list))
+        
+        st.session_state["results"] = pd.DataFrame(rows)
 
-            with st.spinner("Resolving names from PubChem (fast Title, then CID/RecordTitle/IUPAC)..."):
-                p2 = st.progress(0)
-                for j, idx in enumerate(idxs):
-                    smi = df_work.at[idx, "SMILES"]
-                    name, cid, src, err = resolve_name(smi)
+        # TRIGGER AUTO-RESOLVE
+        if enable_naming and auto_resolve:
+            df_work = st.session_state["results"]
+            valid_indices = df_work.index[df_work["Result"] != "INVALID"].tolist()
+            
+            if resolve_scope == "Top hits only":
+                valid_indices = df_work.loc[valid_indices].sort_values("Inhibition Prob", ascending=False).head(top_n).index.tolist()
+            
+            with st.spinner("Fetching names..."):
+                for idx in valid_indices:
+                    name, cid, src, err = resolve_name(df_work.at[idx, "SMILES"])
                     df_work.at[idx, "Compound Name"] = name
                     df_work.at[idx, "PubChem CID"] = cid
                     df_work.at[idx, "Name Source"] = src
                     df_work.at[idx, "Name Error"] = err
-                    p2.progress((j + 1) / max(1, len(idxs)))
-                    time.sleep(0.10)  # small delay to be polite; only affects naming, not screening
-
             st.session_state["results"] = df_work
-            st.success("Name resolution complete. Table updated.")
 
-    # Display results (persisted in session_state)
     if "results" in st.session_state:
-        df_out = st.session_state["results"].copy()
-        valid = df_out[df_out["Result"].isin(["ACTIVE", "INACTIVE"])].dropna(subset=["Inhibition Prob"]).copy()
-
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Molecules", len(df_out))
-        m2.metric("Valid predictions", len(valid))
-        m3.metric("ACTIVE calls", int((valid["Result"] == "ACTIVE").sum()) if len(valid) else 0)
-        m4.metric("Max Probability", f"{float(valid['Inhibition Prob'].max()):.3f}" if len(valid) else "NA")
-
-        st.write("---")
-        try:
-            st.dataframe(df_out.style.background_gradient(subset=["Inhibition Prob"], cmap="RdYlGn"),
-                         use_container_width=True)
-        except Exception:
-            st.dataframe(df_out, use_container_width=True)
-
-        st.download_button("Export Results (CSV)", df_out.to_csv(index=False), "NeuroBACE_Report.csv")
-
-    else:
-        st.info("Enter SMILES and click Start Virtual Screening.")
-
-with tab2:
-    if "results" not in st.session_state:
-        st.info("Run screening first to view analytics.")
-    else:
-        df = st.session_state["results"].copy()
-        dfv = df[df["Result"].isin(["ACTIVE", "INACTIVE"])].dropna(subset=["Inhibition Prob"]).copy()
-
-        if dfv.empty:
-            st.warning("No valid predictions available.")
-        else:
-            st.subheader("Predictive Probability Distribution")
-            fig_hist = px.histogram(dfv, x="Inhibition Prob", nbins=30, range_x=[0, 1])
-            st.plotly_chart(fig_hist, use_container_width=True)
-
-            st.subheader("Top predicted molecules (color-coded)")
-            top = dfv.sort_values("Inhibition Prob", ascending=False).head(25).copy()
-            top = top.sort_values("Inhibition Prob", ascending=True)
-
-            fig_bar = px.bar(
-                top,
-                y="Compound Name",
-                x="Inhibition Prob",
-                orientation="h",
-                color="Inhibition Prob",
-                color_continuous_scale=[[0, "red"], [0.5, "yellow"], [1, "green"]],
-                range_x=[0, 1],
-                height=max(420, len(top) * 28),
-            )
-            fig_bar.update_layout(coloraxis_colorbar_title="Probability")
-            st.plotly_chart(fig_bar, use_container_width=True)
+        st.dataframe(st.session_state["results"].style.background_gradient(subset=["Inhibition Prob"], cmap="RdYlGn"), use_container_width=True)
