@@ -53,6 +53,7 @@ with st.sidebar:
 @st.cache_resource
 def load_model():
     try:
+        # Loading the verified .pkl model
         with open('BACE1_trained_model_optimized.pkl', 'rb') as f:
             return pickle.load(f)
     except: return None
@@ -63,25 +64,28 @@ def run_prediction(smiles):
     mol = Chem.MolFromSmiles(smiles)
     if mol:
         fp = AllChem.GetMorganFingerprintAsBitVect(mol, radius=2, nBits=2048)
+        # Using standard predict_proba for the pickled XGBoost model
         return round(model.predict_proba(np.array(fp).reshape(1, -1))[0][1], 4)
     return None
 
 # --- HEADER WITH PERFECT ALIGNMENT ---
-# Instruction: Save your blue/pink brain image as 'logo.png' in the same folder as this script.
+# Save your brain image as 'logo.png' in the same folder as this script
 logo_path = "logo.png"
 
-# Using vertical_alignment="center" ensures the image and text stay level.
+# vertical_alignment="center" ensures the image and text are perfectly level
 head_col1, head_col2 = st.columns([1, 6], vertical_alignment="center")
 
 with head_col1:
     if os.path.exists(logo_path):
-        st.image(logo_path, use_container_width=True)
+        st.image(logo_path, width=100)
     else:
-        st.error("Missing 'logo.png'")
+        # Placeholder if image is missing
+        st.markdown(f'<div style="width:80px; height:80px; background:{accent}; border-radius:50%;"></div>', unsafe_allow_html=True)
 
 with head_col2:
     st.title("NeuroBACE-ML")
-    st.markdown("##### *Precision Platform for BACE1 Inhibitor Discovery*")
+    # Updated subtitle as requested
+    st.markdown("##### *Advanced Predictive Framework for BACE1 Inhibition*")
 
 st.write("---")
 
@@ -152,8 +156,8 @@ with t2:
 with t3:
     st.write("### Platform Architecture")
     st.markdown("""
-    - **Architecture:** XGBoost Framework (Pickle Serialization)
+    - **Architecture:** Optimized XGBoost Framework (Pickle Serialization)
     - **Optimization:** Bayesian Framework via Optuna
     - **Feature Extraction:** 2048-bit Morgan Fingerprints (Radius=2)
-    - **Nomenclature:** Internal Serial Naming (C-n)
+    - **Identification:** Internal Serial Naming (C-n)
     """)
