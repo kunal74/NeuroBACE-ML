@@ -1,166 +1,136 @@
-import streamlit as st
-import pandas as pd
+import os
 import numpy as np
-import pickle
-import requests
-from rdkit import Chem
+import pandas as pd
+import streamlit as st
+import xgboost as xgb
+
+from rdkit import Chem, DataStructs
 from rdkit.Chem import AllChem
-import plotly.express as px
 
-# --- PAGE CONFIGURATION ---
-st.set_page_config(page_title="NeuroBACE-ML", page_icon="🧠", layout="wide")
+# =========================
+# PAGE CONFIG
+# =========================
+st.set_page_config(
+    page_title="NeuroBACE-ML",
+    page_icon="🧠",
+    layout="wide"
+)
 
-# --- THEME LOGIC ---
-if 'theme' not in st.session_state:
-    st.session_state.theme = 'Dark'
+st.title("🧠 NeuroBACE-ML")
+st.caption("BACE1 inhibition probability predictor")
+st.divider()
 
-st.sidebar.title("NeuroBACE-ML")
-theme_choice = st.sidebar.radio("Appearance Mode", ["Dark", "Light"], horizontal=True)
-st.session_state.theme = theme_choice
+# =========================
+# CONSTANTS
+# =========================
+MODEL_FILE = "BACE1_trained_model_optimized.json"
+FP_BITS = 2048
+THRESHOLD = 0.70
 
-# Adaptive Colors for High Contrast
-if st.session_state.theme == 'Dark':
-    bg, text, card, accent = "#0f172a", "#f8fafc", "#1e293b", "#38bdf8"
-    plotly_temp = "plotly_dark"
-else:
-    # High-contrast Light Theme
-    bg, text, card, accent = "#ffffff", "#000000", "#f1f5f9", "#2563eb"
-    plotly_temp = "plotly_white"
-
-# --- UNIVERSAL VISIBILITY CSS ---
-st.markdown(f"""
-    <style>
-    .stApp {{ background-color: {bg} !important; color: {text} !important; }}
-    [data-testid="stSidebar"] {{ background-color: {bg} !important; border-right: 1px solid {accent}33; }}
-    
-    /* Force text visibility */
-    h1, h2, h3, h4, label, span, p, [data-testid="stWidgetLabel"] p, .stMarkdown p {{ 
-        color: {text} !important; opacity: 1 !important; 
-    }}
-    
-    [data-testid="stMetric"] {{ background-color: {card} !important; border: 1px solid {accent}44 !important; border-radius: 12px; }}
-    [data-testid="stMetricValue"] div {{ color: {accent} !important; font-weight: bold; }}
-
-    /* Button Styling */
-    .stButton>button {{ 
-        background: linear-gradient(90deg, #0ea5e9, #2563eb) !important; 
-        color: white !important; font-weight: bold !important; border-radius: 8px !important;
-    }}
-    
-    img {{ display: none !important; }}
-    #MainMenu, footer {{ visibility: hidden; }}
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- UTILITY: NAME RECOGNITION ---
-def get_compound_name(smiles):
-    try:
-        url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{smiles}/property/Title/JSON"
-        response = requests.get(url, timeout=5)
-        if response.status_code == 200:
-            return response.json()['PropertyTable']['Properties'][0].get('Title', "Unknown")
-        return "Unknown Ligand"
-    except:
-        return "Novel Molecule"
-
-# --- SIDEBAR CONTROLS ---
-with st.sidebar:
-    st.markdown("---")
-    threshold = st.slider("Sensitivity Threshold", 0.0, 1.0, 0.70, 0.01)
-    st.caption("v1.3.0 | Traffic Light Color Scheme")
-
-# --- PREDICTION ENGINE ---
+# =========================
+# LOAD MODEL (XGBOOST JSON)
+# =========================
 @st.cache_resource
 def load_model():
-    try:
-        with open('BACE1_trained_model_optimized.pkl', 'rb') as f:
-            return pickle.load(f)
-    except: return None
+    path = os.path.join(os.path.dirname(__file__), MODEL_FILE)
+    booster = xgb.Booster()
+    booster.load_model(path)
+    return booster
 
 model = load_model()
 
-def run_prediction(smiles):
+# =========================
+# FEATURE GENERATION
+# =========================
+def featurize(smiles):
     mol = Chem.MolFromSmiles(smiles)
-    if mol:
-        fp = AllChem.GetMorganFingerprintAsBitVect(mol, radius=2, nBits=2048)
-        return round(model.predict_proba(np.array(fp).reshape(1, -1))[0][1], 4)
-    return None
+    if mol is None:
+        return None
 
-# --- MAIN DASHBOARD ---
-st.title("🧠 NeuroBACE-ML")
-st.markdown("##### *Advanced Platform for BACE1 Inhibitor Prediction*")
-st.write("---")
+    fp = AllChem.GetMorganFingerprintAsBitVect(
+        mol, radius=2, nBits=FP_BITS
+    )
+    arr = np.zeros((FP_BITS,), dtype=np.float32)
+    DataStructs.ConvertToNumpyArray(fp, arr)
+    return arr.reshape(1, -1)
 
-t1, t2, t3 = st.tabs(["🚀 Screening Engine", "📈 Visual Analytics", "🔬 Specifications"])
+# =========================
+# PREDICTION
+# =========================
+def predict_probability(X):
+    dmat = xgb.DMatrix(X)
+    return float(model.predict(dmat)[0])
 
-with t1:
-    in_type = st.radio("Input Source", ["Manual Entry", "Batch Upload (CSV)"], horizontal=True)
-    mols = []
-    if in_type == "Manual Entry":
-        raw = st.text_area("SMILES (one per line):", "COc1cc2c(cc1OC)C(=O)C(CC2)Cc3ccn(cc3)Cc4ccccc4")
-        mols = [s.strip() for s in raw.split('\n') if s.strip()]
-    else:
-        f = st.file_uploader("Upload CSV")
-        if f: 
-            df_in = pd.read_csv(f)
-            mols = df_in['smiles'].tolist() if 'smiles' in df_in.columns else []
+# =========================
+# INPUT
+# =========================
+smiles_text = st.text_area(
+    "Enter SMILES (one per line)",
+    "CC(=O)NC1=CC=C(C=C1)O",
+    height=150
+)
 
-    if st.button("Start Virtual Screening"):
-        if model and mols:
-            res = []
-            bar = st.progress(0)
-            for i, s in enumerate(mols):
-                p = run_prediction(s)
-                if p is not None:
-                    res.append({
-                        "Compound Name": get_compound_name(s),
-                        "Inhibition Prob": p, 
-                        "Result": "ACTIVE" if p >= threshold else "INACTIVE",
-                        "SMILES": s
-                    })
-                bar.progress((i + 1) / len(mols))
-            
-            df_res = pd.DataFrame(res)
-            st.session_state['results'] = df_res
-            
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Molecules", len(df_res))
-            c2.metric("Potent Hits", len(df_res[df_res['Result'] == "ACTIVE"]))
-            c3.metric("Max Probability", f"{df_res['Inhibition Prob'].max():.2%}")
-            
-            st.write("---")
-            # Apply Red-Yellow-Green (RdYlGn) gradient to the table
-            st.dataframe(df_res.style.background_gradient(subset=['Inhibition Prob'], cmap='RdYlGn'), use_container_width=True)
-            st.download_button("Export Results", df_res.to_csv(index=False), "NeuroBACE_Report.csv")
+run = st.button("Start Virtual Screening")
 
-with t2:
-    if 'results' in st.session_state:
-        st.markdown("### Predictive Probability Distribution")
-        # Sort data for a cleaner visual gradient
-        data = st.session_state['results'].sort_values('Inhibition Prob', ascending=True)
-        
-        # Horizontal bar chart with matched Red-Yellow-Green scale
-        fig = px.bar(
-            data, 
-            y='Compound Name', 
-            x='Inhibition Prob', 
-            orientation='h',
-            color='Inhibition Prob',
-            # Strict mapping: Red(0) -> Yellow(0.5) -> Green(1)
-            color_continuous_scale=[[0, 'red'], [0.5, 'yellow'], [1, 'green']],
-            template=plotly_temp,
-            labels={'Inhibition Prob': 'Probability Score'},
-            height=max(400, len(data) * 30) # Prevent overlapping names
-        )
-        
-        fig.update_layout(xaxis_range=[0, 1])
-        st.plotly_chart(fig, use_container_width=True)
+# =========================
+# SCREENING
+# =========================
+if run:
+    smiles_list = [s.strip() for s in smiles_text.splitlines() if s.strip()]
+    results = []
 
-with t3:
-    st.write("### Platform Architecture")
-    st.markdown("""
-    - **Architecture:** Optimized XGBoost Framework
-    - **Optimization:** Bayesian Framework via Optuna
-    - **Feature Extraction:** 2048-bit Morgan Fingerprints (Radius=2)
-    - **Database Integration:** PubChem PUG REST API for real-time name recognition
-    """)
+    with st.spinner("Running predictions..."):
+        for idx, smi in enumerate(smiles_list, start=1):
+            X = featurize(smi)
+
+            if X is None:
+                results.append({
+                    "Compound ID": f"C-{idx}",
+                    "SMILES": smi,
+                    "Inhibition Probability": None,
+                    "Prediction": "INVALID"
+                })
+                continue
+
+            prob = predict_probability(X)
+            results.append({
+                "Compound ID": f"C-{idx}",
+                "SMILES": smi,
+                "Inhibition Probability": round(prob, 6),
+                "Prediction": "ACTIVE" if prob >= THRESHOLD else "INACTIVE"
+            })
+
+    df = pd.DataFrame(results)
+
+    # =========================
+    # METRICS
+    # =========================
+    valid = df.dropna(subset=["Inhibition Probability"])
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total Molecules", len(df))
+    c2.metric("Valid Predictions", len(valid))
+    c3.metric("ACTIVE Calls", int((valid["Prediction"] == "ACTIVE").sum()))
+    c4.metric(
+        "Max Probability",
+        f"{valid['Inhibition Probability'].max():.3f}" if len(valid) else "NA"
+    )
+
+    st.divider()
+
+    # =========================
+    # RESULTS TABLE
+    # =========================
+    st.dataframe(
+        df.style.background_gradient(
+            subset=["Inhibition Probability"],
+            cmap="RdYlGn"
+        ),
+        use_container_width=True
+    )
+
+    st.download_button(
+        "Download Results (CSV)",
+        df.to_csv(index=False),
+        "NeuroBACE_BACE1_Screening.csv"
+    )
