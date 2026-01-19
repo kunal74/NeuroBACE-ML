@@ -17,7 +17,6 @@ st.sidebar.title("NeuroBACE-ML")
 theme_choice = st.sidebar.radio("Appearance Mode", ["Dark", "Light"], horizontal=True)
 st.session_state.theme = theme_choice
 
-# Define theme colors
 if st.session_state.theme == 'Dark':
     bg, text, card, accent = "#0f172a", "#f8fafc", "#1e293b", "#38bdf8"
     plotly_temp = "plotly_dark"
@@ -25,7 +24,7 @@ else:
     bg, text, card, accent = "#ffffff", "#000000", "#f1f5f9", "#2563eb"
     plotly_temp = "plotly_white"
 
-# Apply custom CSS
+# --- CUSTOM CSS FOR ALIGNMENT & VISIBILITY ---
 st.markdown(f"""
     <style>
     .stApp {{ background-color: {bg} !important; color: {text} !important; }}
@@ -40,22 +39,27 @@ st.markdown(f"""
         color: white !important; font-weight: bold !important; border-radius: 8px !important;
     }}
     #MainMenu, footer {{ visibility: hidden; }}
+    
+    /* Header Container for Perfect Alignment */
+    .header-container {{
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        margin-bottom: 5px;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
 # --- SIDEBAR CONTROLS ---
 with st.sidebar:
     st.markdown("---")
-    # Probability Threshold Slider
     threshold = st.slider("Probability Threshold (P ≥ 0.7 = Active)", 0.0, 1.0, 0.70, 0.01)
-    # Clean Version Number
     st.caption("v1.0")
 
 # --- PREDICTION ENGINE ---
 @st.cache_resource
 def load_model():
     try:
-        # Load the pickled model
         with open('BACE1_trained_model_optimized.pkl', 'rb') as f:
             return pickle.load(f)
     except: return None
@@ -66,35 +70,25 @@ def run_prediction(smiles):
     mol = Chem.MolFromSmiles(smiles)
     if mol:
         fp = AllChem.GetMorganFingerprintAsBitVect(mol, radius=2, nBits=2048)
-        # Get probability for class 1 (Active)
         return round(model.predict_proba(np.array(fp).reshape(1, -1))[0][1], 4)
     return None
 
-# --- MAIN DASHBOARD ---
-
-# Header Columns: Logo and Title
-c1, c2 = st.columns([0.1, 0.9])
-
-# Column 1: Embedded Professional Brain SVG Logo
-with c1:
-    # This SVG is embedded directly, fixing the "question mark" issue.
-    # The 'fill="{accent}"' ensures it matches your theme color.
-    st.markdown(f"""
-        <div style="display: flex; justify-content: center; align-items: center; height: 100%;">
-            <svg width="70" height="70" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM13.03 19.89C12.7 19.96 12.36 20 12 20C10.28 20 8.68 19.46 7.36 18.54C8.57 17.2 10.21 16.31 12.06 16.04C13.91 15.77 15.82 15.97 17.5 16.61C16.4 18.35 14.87 19.6 13.03 19.89ZM18.93 15.1C17.06 14.26 14.96 14 12.91 14.29C10.86 14.58 8.99 15.53 7.6 17.02C6.24 15.67 5.32 13.89 5.07 11.93C6.54 11.3 8.14 11 9.8 11C11.38 11 12.92 11.27 14.37 11.82C15.82 12.37 17.13 13.23 18.17 14.36C18.48 14.09 18.74 14.35 18.93 15.1ZM19.41 12.69C18.26 11.47 16.84 10.54 15.28 9.95C13.72 9.36 12.07 9.05 10.38 9.05C8.55 9.05 6.8 9.38 5.21 10.05C5.06 9.7 5.01 9.35 5.01 9C5.01 5.13 8.13 2 12 2C15.87 2 19 5.13 19 9C19 10.42 18.58 11.73 17.86 12.84C18.46 12.7 18.98 12.67 19.41 12.69ZM12 4C9.24 4 7 6.24 7 9C7 9.17 7.01 9.34 7.02 9.51C8.11 9.19 9.24 9.02 10.38 9.02C12.21 9.02 13.98 9.37 15.65 10.04C16.47 9.86 17 9.13 17 8.25C17 6.24 14.76 4 12 4Z" fill="{accent}"/>
-            </svg>
-        </div>
-    """, unsafe_allow_html=True)
-
-# Column 2: Title and Subtitle
-with c2:
-    st.markdown(f"<h1 style='margin-top: 10px; color: {text};'>NeuroBACE-ML</h1>", unsafe_allow_html=True)
-    st.markdown("##### *Precision Platform for BACE1 Inhibitor Discovery*")
+# --- MAIN DASHBOARD HEADER ---
+# This block fixes the "question mark" and "misalignment" issues simultaneously
+st.markdown(f"""
+    <div class="header-container">
+        <svg width="70" height="70" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM13.03 19.89C12.7 19.96 12.36 20 12 20C10.28 20 8.68 19.46 7.36 18.54C8.57 17.2 10.21 16.31 12.06 16.04C13.91 15.77 15.82 15.97 17.5 16.61C16.4 18.35 14.87 19.6 13.03 19.89ZM18.93 15.1C17.06 14.26 14.96 14 12.91 14.29C10.86 14.58 8.99 15.53 7.6 17.02C6.24 15.67 5.32 13.89 5.07 11.93C6.54 11.3 8.14 11 9.8 11C11.38 11 12.92 11.27 14.37 11.82C15.82 12.37 17.13 13.23 18.17 14.36C18.48 14.09 18.74 14.35 18.93 15.1ZM19.41 12.69C18.26 11.47 16.84 10.54 15.28 9.95C13.72 9.36 12.07 9.05 10.38 9.05C8.55 9.05 6.8 9.38 5.21 10.05C5.06 9.7 5.01 9.35 5.01 9C5.01 5.13 8.13 2 12 2C15.87 2 19 5.13 19 9C19 10.42 18.58 11.73 17.86 12.84C18.46 12.7 18.98 12.67 19.41 12.69ZM12 4C9.24 4 7 6.24 7 9C7 9.17 7.01 9.34 7.02 9.51C8.11 9.19 9.24 9.02 10.38 9.02C12.21 9.02 13.98 9.37 15.65 10.04C16.47 9.86 17 9.13 17 8.25C17 6.24 14.76 4 12 4Z" fill="{accent}"/>
+        </svg>
+        <h1 style="margin: 0; padding: 0;">NeuroBACE-ML</h1>
+    </div>
+    <p style="margin-left: 90px; margin-top: -15px; font-weight: 500; font-style: italic; opacity: 0.8;">
+        Precision Platform for BACE1 Inhibitor Discovery
+    </p>
+""", unsafe_allow_html=True)
 
 st.write("---")
 
-# Tabs with Material Icons
 t1, t2, t3 = st.tabs([":material/science: Screening Engine", ":material/monitoring: Visual Analytics", ":material/settings: Specifications"])
 
 # --- TAB 1: SCREENING ENGINE ---
@@ -118,7 +112,7 @@ with t1:
                 p = run_prediction(s)
                 if p is not None:
                     res.append({
-                        "Compounds": f"C-{i+1}", # Serial Naming (C-1, C-2...)
+                        "Compounds": f"C-{i+1}", 
                         "Inhibition Prob": p, 
                         "Result": "ACTIVE" if p >= threshold else "INACTIVE",
                         "SMILES": s
