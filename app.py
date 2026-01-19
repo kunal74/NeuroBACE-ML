@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import pickle
+import base64
 from rdkit import Chem
 from rdkit.Chem import AllChem
 import plotly.express as px
@@ -24,7 +25,7 @@ else:
     bg, text, card, accent = "#ffffff", "#000000", "#f1f5f9", "#2563eb"
     plotly_temp = "plotly_white"
 
-# --- CUSTOM CSS FOR ALIGNMENT & VISIBILITY ---
+# --- CUSTOM STYLING ---
 st.markdown(f"""
     <style>
     .stApp {{ background-color: {bg} !important; color: {text} !important; }}
@@ -40,17 +41,16 @@ st.markdown(f"""
     }}
     #MainMenu, footer {{ visibility: hidden; }}
     
-    /* Header Container for Perfect Alignment */
     .header-container {{
         display: flex;
         align-items: center;
-        gap: 20px;
+        gap: 25px;
         margin-bottom: 5px;
     }}
     </style>
     """, unsafe_allow_html=True)
 
-# --- SIDEBAR CONTROLS ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.markdown("---")
     threshold = st.slider("Probability Threshold (P ≥ 0.7 = Active)", 0.0, 1.0, 0.70, 0.01)
@@ -73,16 +73,22 @@ def run_prediction(smiles):
         return round(model.predict_proba(np.array(fp).reshape(1, -1))[0][1], 4)
     return None
 
-# --- MAIN DASHBOARD HEADER ---
-# This block fixes the "question mark" and "misalignment" issues simultaneously
+# --- HEADER WITH CUSTOM LOGO ---
+# To use your image, save it as 'logo.png' in the same folder as this script.
+try:
+    with open("logo.png", "rb") as f:
+        data = base64.b64encode(f.read()).decode()
+    logo_html = f'<img src="data:image/png;base64,{data}" width="85">'
+except:
+    # Fallback to a placeholder if the file is missing
+    logo_html = '<div style="width:85px; height:85px; background:#38bdf8; border-radius:50%;"></div>'
+
 st.markdown(f"""
     <div class="header-container">
-        <svg width="70" height="70" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM13.03 19.89C12.7 19.96 12.36 20 12 20C10.28 20 8.68 19.46 7.36 18.54C8.57 17.2 10.21 16.31 12.06 16.04C13.91 15.77 15.82 15.97 17.5 16.61C16.4 18.35 14.87 19.6 13.03 19.89ZM18.93 15.1C17.06 14.26 14.96 14 12.91 14.29C10.86 14.58 8.99 15.53 7.6 17.02C6.24 15.67 5.32 13.89 5.07 11.93C6.54 11.3 8.14 11 9.8 11C11.38 11 12.92 11.27 14.37 11.82C15.82 12.37 17.13 13.23 18.17 14.36C18.48 14.09 18.74 14.35 18.93 15.1ZM19.41 12.69C18.26 11.47 16.84 10.54 15.28 9.95C13.72 9.36 12.07 9.05 10.38 9.05C8.55 9.05 6.8 9.38 5.21 10.05C5.06 9.7 5.01 9.35 5.01 9C5.01 5.13 8.13 2 12 2C15.87 2 19 5.13 19 9C19 10.42 18.58 11.73 17.86 12.84C18.46 12.7 18.98 12.67 19.41 12.69ZM12 4C9.24 4 7 6.24 7 9C7 9.17 7.01 9.34 7.02 9.51C8.11 9.19 9.24 9.02 10.38 9.02C12.21 9.02 13.98 9.37 15.65 10.04C16.47 9.86 17 9.13 17 8.25C17 6.24 14.76 4 12 4Z" fill="{accent}"/>
-        </svg>
-        <h1 style="margin: 0; padding: 0;">NeuroBACE-ML</h1>
+        {logo_html}
+        <h1 style="margin: 0; font-size: 3rem; font-weight: 800; letter-spacing: -1px;">NeuroBACE-ML</h1>
     </div>
-    <p style="margin-left: 90px; margin-top: -15px; font-weight: 500; font-style: italic; opacity: 0.8;">
+    <p style="margin-left: 110px; margin-top: -20px; font-weight: 500; font-style: italic; opacity: 0.8; font-size: 1.1rem;">
         Precision Platform for BACE1 Inhibitor Discovery
     </p>
 """, unsafe_allow_html=True)
@@ -148,7 +154,6 @@ with t2:
             labels={'Inhibition Prob': 'Probability Score'},
             height=max(400, len(data) * 30)
         )
-        
         fig.update_layout(xaxis_range=[0, 1])
         st.plotly_chart(fig, use_container_width=True)
 
@@ -159,5 +164,5 @@ with t3:
     - **Architecture:** XGBoost Framework (Pickle Serialization)
     - **Optimization:** Bayesian Framework via Optuna
     - **Feature Extraction:** 2048-bit Morgan Fingerprints (Radius=2)
-    - **Nomenclature:** Internal Serial Naming (C-n)
+    - **Identification:** Local Serial Naming (C-n)
     """)
