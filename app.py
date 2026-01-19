@@ -104,15 +104,24 @@ def guess_smiles_column(columns):
 # -----------------------
 # --- UTILITY: NAME RECOGNITION ---
 # # -----------------------
-def get_compound_name(smiles):
+@st.cache_data(show_spinner=False)
+def resolve_name(smiles):
+    """Fetches the compound name and CID from PubChem."""
     try:
-        url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{smiles}/property/Title/JSON"
+        # Encode SMILES for URL
+        escaped_smiles = quote(smiles)
+        url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{escaped_smiles}/property/Title/JSON"
         response = requests.get(url, timeout=5)
+        
         if response.status_code == 200:
-            return response.json()['PropertyTable']['Properties'][0].get('Title', "Unknown")
-        return "Unknown Ligand"
-    except:
-        return "Novel Molecule"
+            data = response.json()
+            props = data['PropertyTable']['Properties'][0]
+            cid = props.get('CID', "None")
+            name = props.get('Title', "Unknown")
+            return name, cid, "PubChem", ""
+        return "Unknown", None, "None", "Not found in PubChem"
+    except Exception as e:
+        return "Unknown", None, "None", str(e)
 
 # -----------------------
 # Sidebar
