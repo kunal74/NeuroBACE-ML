@@ -242,7 +242,35 @@ with t1:
                         return ['background-color: #3f3f3f; color: #ffa500'] * len(row)
                     return [''] * len(row)
 
-                st.dataframe(df_res, use_container_width=True, hide_index=True)
+                # --- Traffic-light cell coloring (no matplotlib required) ---
+                prob_col = "Inhibition Prob" if "Inhibition Prob" in df_res.columns else ("P(Active)" if "P(Active)" in df_res.columns else None)
+
+                def traffic_light(v):
+                    try:
+                        v = float(v)
+                    except Exception:
+                        return ""
+                    if v >= 0.90:
+                        return "background-color: #16a34a; color: white;"   # green
+                    elif v >= 0.70:
+                        return "background-color: #65a30d; color: white;"   # light green
+                    elif v >= 0.50:
+                        return "background-color: #facc15; color: black;"   # yellow
+                    elif v >= 0.30:
+                        return "background-color: #fb923c; color: black;"   # orange
+                    else:
+                        return "background-color: #dc2626; color: white;"   # red
+
+                if prob_col:
+                    styled = (
+                        df_res.style
+                        .applymap(traffic_light, subset=[prob_col])
+                        .format({prob_col: "{:.4f}"})
+                    )
+                    st.dataframe(styled, use_container_width=True, hide_index=True)
+                else:
+                    st.dataframe(df_res, use_container_width=True, hide_index=True)
+
                 st.download_button("Export Results", df_res.to_csv(index=False), "NeuroBACE_Report.csv")
             else:
                 st.error("❌ No valid fingerprints could be generated.")
