@@ -7,7 +7,23 @@ from rdkit import Chem, DataStructs
 from rdkit.Chem import rdFingerprintGenerator
 import plotly.express as px
 import os
+from pathlib import Path
 import time
+
+# --- MODEL/THRESHOLD ARTIFACTS (from Colab training) ---
+MODEL_FILE = "BACE1_option1_binary_xgb.json"         # your saved Booster JSON
+THRESH_FILE = "BACE1_option1_threshold.txt"          # contains: 0.70
+DEFAULT_THRESHOLD_FALLBACK = 0.70
+
+def read_threshold_file(path: str, fallback: float = DEFAULT_THRESHOLD_FALLBACK) -> float:
+    try:
+        if os.path.exists(path):
+            val = float(Path(path).read_text().strip())
+            # safety clamp
+            return float(min(1.0, max(0.0, val)))
+    except Exception:
+        pass
+    return float(fallback)
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="NeuroBACE-ML", page_icon="🧠", layout="wide")
@@ -48,13 +64,15 @@ st.markdown(f"""
 # --- SIDEBAR CONTROLS ---
 with st.sidebar:
     st.markdown("---")
-    threshold = st.slider("Decision Threshold (Validation Optimized)", 0.0, 1.0, 0.70, 0.01)
-    st.caption("v1.1 | High-Performance Batching")
+    default_thr = read_threshold_file(THRESH_FILE, DEFAULT_THRESHOLD_FALLBACK)
+    threshold = st.slider("Operating Threshold (finalized default)", 0.0, 1.0, float(default_thr), 0.01)
+    st.caption(f"Default threshold loaded: {default_thr:.2f} (recommended)")
+    st.caption("v1.2 | Binary Option-1 (≤100 nM vs ≥1 µM) | Threshold default = 0.70")
 
 # --- PREDICTION ENGINE ---
 @st.cache_resource
 def load_model():
-    json_file = 'BACE1_optimized_model.json'
+    json_file = MODEL_FILE
     if not os.path.exists(json_file):
         st.error(f"🚨 Critical Error: Model file '{json_file}' is missing.")
         return None
@@ -73,11 +91,12 @@ model = load_model()
 mfpgen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
 
 # --- SCIENTIFIC HELPER FUNCTIONS ---
-def get_confidence_level(prob):
-    dist = abs(prob - 0.5)
-    if dist < 0.15: 
+def get_confidence_level(prob: float, thr: float) -> str:
+    """Heuristic confidence: distance from the decision threshold."""
+    dist = abs(prob - thr)
+    if dist < 0.05:
         return "LOW (Ambiguous)"
-    elif dist < 0.35: 
+    elif dist < 0.15:
         return "MEDIUM"
     else:
         return "HIGH"
@@ -196,13 +215,15 @@ with t1:
                 probs_batch = model.predict(dmatrix_batch)
                 
                 # Map results back
+                thr_used = float(threshold)
+                st.session_state['threshold_used'] = thr_used
                 res = []
                 for idx, (smile, p) in enumerate(zip(valid_smiles, probs_batch)):
                     prob_val = float(p)
                     res.append({
                         "Compounds": f"C-{valid_indices[idx]+1}", 
-                        "Inhibition Prob": round(prob_val, 4), 
-                        "Model Confidence": get_confidence_level(prob_val), 
+                        "P(Active)": round(prob_val, 4), 
+                        "Model Confidence": get_confidence_level(prob_val, thr_used), 
                         "Result": "ACTIVE" if prob_val >= threshold else "INACTIVE",
                         "SMILES": smile
                     })
@@ -222,7 +243,7 @@ with t1:
                 c1_m, c2_m, c3_m = st.columns(3)
                 c1_m.metric("Molecules Processed", len(df_res))
                 c2_m.metric("Potent Hits", len(df_res[df_res['Result'] == "ACTIVE"]))
-                c3_m.metric("Max Probability", f"{df_res['Inhibition Prob'].max():.2%}")
+                c3_m.metric("Max Probability", f"{df_res['P(Active)'].max():.2%}")
                 
                 st.write("---")
                 
@@ -232,7 +253,7 @@ with t1:
                     return [''] * len(row)
 
                 st.dataframe(
-                    df_res.style.background_gradient(subset=['Inhibition Prob'], cmap='RdYlGn')
+                    df_res.style.background_gradient(subset=['P(Active)'], cmap='RdYlGn')
                           .apply(highlight_low_conf, axis=1), 
                     use_container_width=True,
                     hide_index=True
@@ -245,21 +266,25 @@ with t1:
 with t2:
     if 'results' in st.session_state:
         st.markdown("### Predictive Probability Distribution")
-        data = st.session_state['results'].sort_values('Inhibition Prob', ascending=True)
+        data = st.session_state['results'].sort_values('P(Active)', ascending=True)
         
         fig = px.bar(
             data, 
             y='Compounds', 
-            x='Inhibition Prob', 
+            x='P(Active)', 
             orientation='h',
-            color='Inhibition Prob',
+            color='P(Active)',
             color_continuous_scale=[[0, 'red'], [0.5, 'yellow'], [1, 'green']],
             template=plotly_temp,
             hover_data=["Model Confidence", "SMILES"], 
-            labels={'Inhibition Prob': 'Probability Score'},
+            labels={'P(Active)': 'Probability Score'},
             height=max(400, len(data) * 30)
         )
-        fig.add_vrect(x0=0.35, x1=0.65, fillcolor="gray", opacity=0.1, annotation_text="Ambiguous Zone", annotation_position="top left")
+        thr_plot = float(st.session_state.get('threshold_used', threshold))
+        x0 = max(0.0, thr_plot - 0.10)
+        x1 = min(1.0, thr_plot + 0.10)
+        fig.add_vrect(x0=x0, x1=x1, fillcolor="gray", opacity=0.12, annotation_text="Ambiguous Zone", annotation_position="top left")
+        fig.add_vline(x=thr_plot, line_dash="dash", annotation_text=f"Threshold={thr_plot:.2f}", annotation_position="top")
         fig.update_layout(xaxis_range=[0, 1])
         st.plotly_chart(fig, use_container_width=True)
 
@@ -273,6 +298,7 @@ with t3:
     - **Optimization:** Bayesian Hyperparameter Tuning via Optuna (Offline Training Phase)
     - **Scientific Validation:**
         - **Confidence Estimation:** Distance-to-boundary heuristic enabled.
-        - **Applicability Domain:** Users are advised to verify structural similarity to the BACE1 training set (ChEMBL).
+        - **Label definition (binary, Option 1):** Active = IC50 ≤ 100 nM; Inactive = IC50 ≥ 1 µM; 100–1000 nM excluded from training.
+    - **Applicability Domain:** Users are advised to verify structural similarity to the BACE1 training set (ChEMBL).
     - **Identification:** Local Serial Nomenclature (C-n)
     """)
