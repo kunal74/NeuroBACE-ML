@@ -10,24 +10,11 @@ import os
 from pathlib import Path
 import time
 
-# --- MODEL/THRESHOLD ARTIFACTS (from Colab training) ---
-MODEL_FILE = "BACE1_option1_binary_xgb.json"         # your saved Booster JSON
-THRESH_FILE = "BACE1_option1_threshold.txt"          # contains: 0.70
-DEFAULT_THRESHOLD_FALLBACK = 0.70
-
+# --- MODEL ARTIFACT (from Colab training) ---
+MODEL_FILE = 'BACE1_option1_binary_xgb.json'  # XGBoost Booster JSON
+DEFAULT_THRESHOLD = 0.70                     # finalized operating threshold
 BASE_DIR = Path(__file__).resolve().parent
 MODEL_PATH = BASE_DIR / MODEL_FILE
-THRESH_PATH = BASE_DIR / THRESH_FILE
-
-def read_threshold_file(path: str, fallback: float = DEFAULT_THRESHOLD_FALLBACK) -> float:
-    try:
-        if os.path.exists(path):
-            val = float(Path(path).read_text().strip())
-            # safety clamp
-            return float(min(1.0, max(0.0, val)))
-    except Exception:
-        pass
-    return float(fallback)
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="NeuroBACE-ML", page_icon="🧠", layout="wide")
@@ -68,25 +55,23 @@ st.markdown(f"""
 # --- SIDEBAR CONTROLS ---
 with st.sidebar:
     st.markdown("---")
-    default_thr = read_threshold_file(str(THRESH_PATH), DEFAULT_THRESHOLD_FALLBACK)
-    threshold = st.slider("Operating Threshold (finalized default)", 0.0, 1.0, float(default_thr), 0.01)
-    st.caption(f"Default threshold loaded: {default_thr:.2f} (recommended)")
-    st.caption("v1.2 | Binary Option-1 (≤100 nM vs ≥1 µM) | Threshold default = 0.70")
+    threshold = st.slider("Operating Threshold (finalized default)", 0.0, 1.0, float(DEFAULT_THRESHOLD), 0.01)
+    st.caption("v1.1 | High-Performance Batching")
 
 # --- PREDICTION ENGINE ---
 @st.cache_resource
+@st.cache_resource
 def load_model(model_path: str, mtime: float):
-    """Load XGBoost Booster from JSON.
-
-    'mtime' is only used to bust Streamlit cache when the model file changes.
+    """Load and cache the trained XGBoost Booster.
+    mtime invalidates the cache when the model file is updated.
     """
     if not os.path.exists(model_path):
-        st.error(f"🚨 Critical Error: Model file is missing. Expected at: {MODEL_PATH}")
+        st.error(f"🚨 Critical Error: Model file is missing. Expected at: {model_path}")
         return None
     try:
-        m = xgb.Booster()
-        m.load_model(model_path)
-        return m
+        booster = xgb.Booster()
+        booster.load_model(model_path)
+        return booster
     except xgb.core.XGBoostError as e:
         st.error(f"🚨 Model Error: {e}")
         return None
@@ -94,14 +79,13 @@ def load_model(model_path: str, mtime: float):
         st.error(f"🚨 Unexpected Error: {e}")
         return None
 
-model_mtime = MODEL_PATH.stat().st_mtime if MODEL_PATH.exists() else 0.0
-model = load_model(str(MODEL_PATH), model_mtime)
+model = load_model(str(MODEL_PATH), os.path.getmtime(str(MODEL_PATH)) if os.path.exists(str(MODEL_PATH)) else 0.0)
 mfpgen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
 
 # --- SCIENTIFIC HELPER FUNCTIONS ---
 def get_confidence_level(prob: float, thr: float) -> str:
-    """Heuristic confidence: distance from the decision threshold."""
-    dist = abs(prob - thr)
+    """Confidence based on distance from the operating threshold (thr)."""
+    dist = abs(float(prob) - float(thr))
     if dist < 0.05:
         return "LOW"
     elif dist < 0.15:
@@ -153,8 +137,7 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
-st.write('---')
-                st.info(f"P(Active) is the model probability of being ACTIVE. Current operating threshold = {thr_used:.2f}.")
+st.write("---")
 
 t1, t2, t3 = st.tabs([":material/science: Screening Engine", ":material/monitoring: Visual Analytics", ":material/settings: Specifications"])
 
@@ -224,15 +207,13 @@ with t1:
                 probs_batch = model.predict(dmatrix_batch)
                 
                 # Map results back
-                thr_used = float(threshold)
-                st.session_state['threshold_used'] = thr_used
                 res = []
                 for idx, (smile, p) in enumerate(zip(valid_smiles, probs_batch)):
                     prob_val = float(p)
                     res.append({
                         "Compounds": f"C-{valid_indices[idx]+1}", 
-                        "P(Active)": round(prob_val, 4), 
-                        "Model Confidence": get_confidence_level(prob_val, thr_used), 
+                        "Inhibition Prob": round(prob_val, 4), 
+                        "Model Confidence": get_confidence_level(prob_val, threshold), 
                         "Result": "ACTIVE" if prob_val >= threshold else "INACTIVE",
                         "SMILES": smile
                     })
@@ -252,7 +233,7 @@ with t1:
                 c1_m, c2_m, c3_m = st.columns(3)
                 c1_m.metric("Molecules Processed", len(df_res))
                 c2_m.metric("Potent Hits", len(df_res[df_res['Result'] == "ACTIVE"]))
-                c3_m.metric("Max Probability", f"{df_res['P(Active)'].max():.2%}")
+                c3_m.metric("Max Probability", f"{df_res['Inhibition Prob'].max():.2%}")
                 
                 st.write("---")
                 
@@ -261,11 +242,7 @@ with t1:
                         return ['background-color: #3f3f3f; color: #ffa500'] * len(row)
                     return [''] * len(row)
 
-                st.dataframe(
-                    df_res.style.format({'P(Active)': '{:.3f}'}).apply(highlight_low_conf, axis=1), 
-                    use_container_width=True,
-                    hide_index=True
-                )
+                st.dataframe(df_res, use_container_width=True, hide_index=True)
                 st.download_button("Export Results", df_res.to_csv(index=False), "NeuroBACE_Report.csv")
             else:
                 st.error("❌ No valid fingerprints could be generated.")
@@ -274,23 +251,21 @@ with t1:
 with t2:
     if 'results' in st.session_state:
         st.markdown("### Predictive Probability Distribution")
-        data = st.session_state['results'].sort_values('P(Active)', ascending=True)
+        data = st.session_state['results'].sort_values('Inhibition Prob', ascending=True)
         
         fig = px.bar(
             data, 
             y='Compounds', 
-            x='P(Active)', 
+            x='Inhibition Prob', 
             orientation='h',
-            color='P(Active)',
+            color='Inhibition Prob',
             color_continuous_scale=[[0, 'red'], [0.5, 'yellow'], [1, 'green']],
             template=plotly_temp,
             hover_data=["Model Confidence", "SMILES"], 
-            labels={'P(Active)': 'Probability Score'},
+            labels={'Inhibition Prob': 'Probability Score'},
             height=max(400, len(data) * 30)
         )
-        thr_plot = float(st.session_state.get('threshold_used', threshold))
 
-        fig.add_vline(x=thr_plot, line_dash="dash", annotation_text=f"Threshold={thr_plot:.2f}", annotation_position="top")
         fig.update_layout(xaxis_range=[0, 1])
         st.plotly_chart(fig, use_container_width=True)
 
@@ -304,7 +279,6 @@ with t3:
     - **Optimization:** Bayesian Hyperparameter Tuning via Optuna (Offline Training Phase)
     - **Scientific Validation:**
         - **Confidence Estimation:** Distance-to-boundary heuristic enabled.
-        - **Label definition (binary, Option 1):** Active = IC50 ≤ 100 nM; Inactive = IC50 ≥ 1 µM; 100–1000 nM excluded from training.
-    - **Applicability Domain:** Users are advised to verify structural similarity to the BACE1 training set (ChEMBL).
+        - **Applicability Domain:** Users are advised to verify structural similarity to the BACE1 training set (ChEMBL).
     - **Identification:** Local Serial Nomenclature (C-n)
     """)
