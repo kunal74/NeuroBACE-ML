@@ -54,7 +54,7 @@ with st.sidebar:
 # --- PREDICTION ENGINE ---
 @st.cache_resource
 def load_model():
-    json_file = 'BACE1_optimized_model.json'
+    json_file = 'BACE1_option1_binary_xgb.json'
     if not os.path.exists(json_file):
         st.error(f"🚨 Critical Error: Model file '{json_file}' is missing.")
         return None
