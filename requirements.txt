@@ -1,9 +1,6 @@
 streamlit
 pandas
 numpy
-rdkit
 xgboost
+rdkit
 plotly
-matplotlib
-streamlit-lottie
-requests
