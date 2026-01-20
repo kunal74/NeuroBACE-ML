@@ -5,7 +5,7 @@ import xgboost as xgb
 import base64
 from rdkit import Chem
 from rdkit.Chem import AllChem
-from rdkit.Chem import rdFingerprintGenerator # Modern API Import
+from rdkit.Chem import rdFingerprintGenerator
 import plotly.express as px
 import os
 
@@ -49,40 +49,48 @@ st.markdown(f"""
 with st.sidebar:
     st.markdown("---")
     threshold = st.slider("Probability Threshold (P ≥ 0.7 = Active)", 0.0, 1.0, 0.70, 0.01)
-    st.caption("v1.2")
+    st.caption("v1.3 | Robust Error Handling")
 
-# --- PREDICTION ENGINE (JSON NATIVE) ---
+# --- PREDICTION ENGINE (ROBUST ERROR HANDLING) ---
 @st.cache_resource
 def load_model():
     json_file = 'BACE1_optimized_model.json'
+    
+    # Specific Feedback 1: File Existence
     if not os.path.exists(json_file):
-        st.error(f"⚠️ CRITICAL ERROR: File '{json_file}' not found.")
+        st.error(f"🚨 Critical Error: Model file '{json_file}' is missing from the repository.")
         return None
+    
     try:
         model = xgb.Booster()
         model.load_model(json_file)
         return model
+    except xgb.core.XGBoostError as e:
+        # Specific Feedback 2: Version Incompatibility
+        st.error(f"🚨 Model Error: The model file is corrupt or incompatible with this XGBoost version. Details: {e}")
+        return None
     except Exception as e:
-        st.error(f"⚠️ Error loading model: {e}")
+        st.error(f"🚨 Unexpected Error: {e}")
         return None
 
 model = load_model()
 
-# --- FINGERPRINT GENERATOR (MODERN API) ---
-# Initializing the modern generator to replace legacy AllChem calls
+# Initialize modern generator
 mfpgen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
 
 def run_prediction(smiles):
     try:
+        if not smiles or not isinstance(smiles, str):
+            return None # Handle empty inputs
+            
         mol = Chem.MolFromSmiles(smiles)
         if mol:
-            # Future-proof generation using GetFingerprintAsNumPy
             fp = mfpgen.GetFingerprintAsNumPy(mol)
             dmatrix = xgb.DMatrix(fp.reshape(1, -1))
             prediction = model.predict(dmatrix)
             return round(float(prediction[0]), 4)
-    except Exception as e:
-        return None
+    except Exception:
+        return None # Return None to signal failure to the screening loop
     return None
 
 # --- HEADER ---
@@ -116,7 +124,7 @@ st.write("---")
 
 t1, t2, t3 = st.tabs([":material/science: Screening Engine", ":material/monitoring: Visual Analytics", ":material/settings: Specifications"])
 
-# --- TAB 1: SCREENING ENGINE ---
+# --- TAB 1: SCREENING ENGINE (USER FEEDBACK) ---
 with t1:
     in_type = st.radio("Input Source", ["Manual Entry", "Batch Upload (CSV)"], horizontal=True)
     mols = []
@@ -131,11 +139,13 @@ with t1:
 
     if st.button("Start Virtual Screening"):
         if model is None:
-            st.error("❌ Model not loaded.")
+            st.error("❌ Action Halted: Model is not loaded. Please check the 'load_model' error above.")
         elif not mols:
-            st.warning("⚠️ No SMILES found.")
+            st.warning("⚠️ Input Warning: No SMILES found to screen.")
         else:
             res = []
+            invalid_count = 0 # Track skipped molecules
+            
             bar = st.progress(0)
             for i, s in enumerate(mols):
                 p = run_prediction(s)
@@ -146,14 +156,20 @@ with t1:
                         "Result": "ACTIVE" if p >= threshold else "INACTIVE",
                         "SMILES": s
                     })
+                else:
+                    invalid_count += 1 # Increment error counter
                 bar.progress((i + 1) / len(mols))
             
+            # Explicit Feedback on Screening Quality
+            if invalid_count > 0:
+                st.warning(f"⚠️ Note: {invalid_count} molecule(s) were skipped due to invalid SMILES syntax or processing errors.")
+
             if res:
                 df_res = pd.DataFrame(res)
                 st.session_state['results'] = df_res
                 
                 c1_m, c2_m, c3_m = st.columns(3)
-                c1_m.metric("Molecules", len(df_res))
+                c1_m.metric("Molecules Processed", len(df_res))
                 c2_m.metric("Potent Hits", len(df_res[df_res['Result'] == "ACTIVE"]))
                 c3_m.metric("Max Probability", f"{df_res['Inhibition Prob'].max():.2%}")
                 
@@ -165,7 +181,7 @@ with t1:
                 )
                 st.download_button("Export Results", df_res.to_csv(index=False), "NeuroBACE_Report.csv")
 
-# --- TAB 2: VISUAL ANALYTICS ---
+# --- TAB 2 & 3: VISUALS & SPECS ---
 with t2:
     if 'results' in st.session_state:
         st.markdown("### Predictive Probability Distribution")
@@ -186,12 +202,11 @@ with t2:
         fig.update_layout(xaxis_range=[0, 1])
         st.plotly_chart(fig, use_container_width=True)
 
-# --- TAB 3: SPECIFICATIONS (UPDATED) ---
 with t3:
     st.write("### Platform Architecture")
     st.markdown("""
     - **Inference Engine:** XGBoost Framework (Native JSON Serialization)
-    - **Molecular Encoding:** RDKit MorganGenerator (2048-bit, Radius=2) [Modern API]
-    - **Optimization:** Bayesian Hyperparameter Tuning via Optuna
+    - **Molecular Encoding:** RDKit MorganGenerator (Modern API)
+    - **Error Handling:** Granular Exception Management & Input Validation
     - **Identification:** Local Serial Nomenclature (C-n)
     """)
