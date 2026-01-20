@@ -48,9 +48,8 @@ st.markdown(f"""
 # --- SIDEBAR CONTROLS ---
 with st.sidebar:
     st.markdown("---")
-    # Addressed Suggestion #3: User-defined threshold with validation context
     threshold = st.slider("Decision Threshold (Validation Optimized)", 0.0, 1.0, 0.70, 0.01)
-    st.caption("v1.5 | Scientific Reliability")
+    st.caption("v1.6 | Publication Ready")
 
 # --- PREDICTION ENGINE ---
 @st.cache_resource
@@ -74,17 +73,11 @@ model = load_model()
 mfpgen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
 
 # --- SCIENTIFIC HELPER FUNCTIONS ---
-# Addresses Suggestion #1 & #2 (Proxy): Quantifying uncertainty
 def get_confidence_level(prob):
-    """
-    Estimates confidence based on distance from the decision boundary (0.5).
-    Scores near 0.5 are 'Low Confidence' (Ambiguous).
-    Scores near 0 or 1 are 'High Confidence' (Clear signal).
-    """
     dist = abs(prob - 0.5)
-    if dist < 0.15: # 0.35 - 0.65
+    if dist < 0.15: 
         return "LOW (Ambiguous)"
-    elif dist < 0.35: # 0.15 - 0.35 or 0.65 - 0.85
+    elif dist < 0.35: 
         return "MEDIUM"
     else:
         return "HIGH"
@@ -181,7 +174,6 @@ with t1:
                     res.append({
                         "Compounds": f"C-{i+1}", 
                         "Inhibition Prob": p, 
-                        # New Column: Reliability Check
                         "Model Confidence": pred_data["confidence"], 
                         "Result": "ACTIVE" if p >= threshold else "INACTIVE",
                         "SMILES": s
@@ -204,7 +196,6 @@ with t1:
                 
                 st.write("---")
                 
-                # Highlight "Low Confidence" rows to alert the user
                 def highlight_low_conf(row):
                     if "LOW" in row['Model Confidence']:
                         return ['background-color: #3f3f3f; color: #ffa500'] * len(row)
@@ -224,7 +215,6 @@ with t2:
         st.markdown("### Predictive Probability Distribution")
         data = st.session_state['results'].sort_values('Inhibition Prob', ascending=True)
         
-        # Updated Visuals to show Confidence regions
         fig = px.bar(
             data, 
             y='Compounds', 
@@ -233,22 +223,21 @@ with t2:
             color='Inhibition Prob',
             color_continuous_scale=[[0, 'red'], [0.5, 'yellow'], [1, 'green']],
             template=plotly_temp,
-            # Add Confidence tooltip
             hover_data=["Model Confidence", "SMILES"], 
             labels={'Inhibition Prob': 'Probability Score'},
             height=max(400, len(data) * 30)
         )
-        # Visualizing the decision boundary and "ambiguous zone"
         fig.add_vrect(x0=0.35, x1=0.65, fillcolor="gray", opacity=0.1, annotation_text="Ambiguous Zone", annotation_position="top left")
         fig.update_layout(xaxis_range=[0, 1])
         st.plotly_chart(fig, use_container_width=True)
 
-# --- SPECIFICATIONS (SCIENTIFIC DISCLAIMER ADDED) ---
+# --- SPECIFICATIONS (UPDATED FOR TRUTHFULNESS) ---
 with t3:
     st.write("### Platform Architecture")
     st.markdown("""
     - **Inference Engine:** XGBoost Framework (Native JSON Serialization)
     - **Molecular Encoding:** RDKit MorganGenerator (Modern API)
+    - **Optimization:** Bayesian Hyperparameter Tuning via Optuna (Offline Training Phase)
     - **Scientific Validation:**
         - **Confidence Estimation:** Distance-to-boundary heuristic enabled.
         - **Applicability Domain:** Users are advised to verify structural similarity to the BACE1 training set (ChEMBL).
