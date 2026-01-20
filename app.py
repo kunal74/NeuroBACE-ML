@@ -48,8 +48,9 @@ st.markdown(f"""
 # --- SIDEBAR CONTROLS ---
 with st.sidebar:
     st.markdown("---")
-    threshold = st.slider("Probability Threshold (P ≥ 0.7 = Active)", 0.0, 1.0, 0.70, 0.01)
-    st.caption("v1.4 | Smart CSV Validation")
+    # Addressed Suggestion #3: User-defined threshold with validation context
+    threshold = st.slider("Decision Threshold (Validation Optimized)", 0.0, 1.0, 0.70, 0.01)
+    st.caption("v1.5 | Scientific Reliability")
 
 # --- PREDICTION ENGINE ---
 @st.cache_resource
@@ -63,16 +64,30 @@ def load_model():
         model.load_model(json_file)
         return model
     except xgb.core.XGBoostError as e:
-        st.error(f"🚨 Model Error: Corrupt or incompatible file. Details: {e}")
+        st.error(f"🚨 Model Error: {e}")
         return None
     except Exception as e:
         st.error(f"🚨 Unexpected Error: {e}")
         return None
 
 model = load_model()
-
-# Initialize modern generator
 mfpgen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
+
+# --- SCIENTIFIC HELPER FUNCTIONS ---
+# Addresses Suggestion #1 & #2 (Proxy): Quantifying uncertainty
+def get_confidence_level(prob):
+    """
+    Estimates confidence based on distance from the decision boundary (0.5).
+    Scores near 0.5 are 'Low Confidence' (Ambiguous).
+    Scores near 0 or 1 are 'High Confidence' (Clear signal).
+    """
+    dist = abs(prob - 0.5)
+    if dist < 0.15: # 0.35 - 0.65
+        return "LOW (Ambiguous)"
+    elif dist < 0.35: # 0.15 - 0.35 or 0.65 - 0.85
+        return "MEDIUM"
+    else:
+        return "HIGH"
 
 def run_prediction(smiles):
     try:
@@ -83,7 +98,12 @@ def run_prediction(smiles):
             fp = mfpgen.GetFingerprintAsNumPy(mol)
             dmatrix = xgb.DMatrix(fp.reshape(1, -1))
             prediction = model.predict(dmatrix)
-            return round(float(prediction[0]), 4)
+            prob = float(prediction[0])
+            
+            return {
+                "prob": round(prob, 4),
+                "confidence": get_confidence_level(prob)
+            }
     except Exception:
         return None 
     return None
@@ -118,7 +138,7 @@ st.write("---")
 
 t1, t2, t3 = st.tabs([":material/science: Screening Engine", ":material/monitoring: Visual Analytics", ":material/settings: Specifications"])
 
-# --- TAB 1: SCREENING ENGINE (SMART CSV LOGIC) ---
+# --- TAB 1: SCREENING ENGINE ---
 with t1:
     in_type = st.radio("Input Source", ["Manual Entry", "Batch Upload (CSV)"], horizontal=True)
     mols = []
@@ -127,28 +147,24 @@ with t1:
         raw = st.text_area("SMILES (one per line):", "COc1cc2c(cc1OC)C(=O)C(CC2)Cc3ccn(cc3)Cc4ccccc4")
         mols = [s.strip() for s in raw.split('\n') if s.strip()]
     
-    else: # Batch Upload Logic
+    else: 
         f = st.file_uploader("Upload CSV (Required column: 'smiles')")
         if f: 
             try:
                 df_in = pd.read_csv(f)
-                # Robust Column Validation
-                # Normalizes headers to lowercase to allow 'SMILES', 'Smiles', or 'smiles'
                 df_in.columns = [c.lower().strip() for c in df_in.columns]
-                
                 if 'smiles' in df_in.columns:
                     mols = df_in['smiles'].dropna().astype(str).tolist()
                     st.success(f"✅ Successfully loaded {len(mols)} molecules.")
                 else:
-                    st.error("❌ CSV Error: Missing required column 'smiles'. Please check your file headers.")
+                    st.error("❌ CSV Error: Missing required column 'smiles'.")
             except Exception as e:
-                st.error(f"❌ File Error: Could not parse CSV. {e}")
+                st.error(f"❌ File Error: {e}")
 
     if st.button("Start Virtual Screening"):
         if model is None:
             st.error("❌ Action Halted: Model is not loaded.")
         elif not mols:
-            # Differentiate between "Empty File" and "No File Uploaded"
             if in_type == "Batch Upload (CSV)" and f is not None:
                 st.warning("⚠️ The uploaded file contains no valid SMILES entries.")
             else:
@@ -159,11 +175,14 @@ with t1:
             
             bar = st.progress(0)
             for i, s in enumerate(mols):
-                p = run_prediction(s)
-                if p is not None:
+                pred_data = run_prediction(s)
+                if pred_data is not None:
+                    p = pred_data["prob"]
                     res.append({
                         "Compounds": f"C-{i+1}", 
                         "Inhibition Prob": p, 
+                        # New Column: Reliability Check
+                        "Model Confidence": pred_data["confidence"], 
                         "Result": "ACTIVE" if p >= threshold else "INACTIVE",
                         "SMILES": s
                     })
@@ -172,7 +191,7 @@ with t1:
                 bar.progress((i + 1) / len(mols))
             
             if invalid_count > 0:
-                st.warning(f"⚠️ Note: {invalid_count} molecule(s) were skipped due to errors.")
+                st.warning(f"⚠️ Note: {invalid_count} molecule(s) skipped due to errors.")
 
             if res:
                 df_res = pd.DataFrame(res)
@@ -184,19 +203,28 @@ with t1:
                 c3_m.metric("Max Probability", f"{df_res['Inhibition Prob'].max():.2%}")
                 
                 st.write("---")
+                
+                # Highlight "Low Confidence" rows to alert the user
+                def highlight_low_conf(row):
+                    if "LOW" in row['Model Confidence']:
+                        return ['background-color: #3f3f3f; color: #ffa500'] * len(row)
+                    return [''] * len(row)
+
                 st.dataframe(
-                    df_res.style.background_gradient(subset=['Inhibition Prob'], cmap='RdYlGn'), 
+                    df_res.style.background_gradient(subset=['Inhibition Prob'], cmap='RdYlGn')
+                          .apply(highlight_low_conf, axis=1), 
                     use_container_width=True,
                     hide_index=True
                 )
                 st.download_button("Export Results", df_res.to_csv(index=False), "NeuroBACE_Report.csv")
 
-# --- VISUAL ANALYTICS & SPECS ---
+# --- VISUAL ANALYTICS ---
 with t2:
     if 'results' in st.session_state:
         st.markdown("### Predictive Probability Distribution")
         data = st.session_state['results'].sort_values('Inhibition Prob', ascending=True)
         
+        # Updated Visuals to show Confidence regions
         fig = px.bar(
             data, 
             y='Compounds', 
@@ -205,17 +233,24 @@ with t2:
             color='Inhibition Prob',
             color_continuous_scale=[[0, 'red'], [0.5, 'yellow'], [1, 'green']],
             template=plotly_temp,
+            # Add Confidence tooltip
+            hover_data=["Model Confidence", "SMILES"], 
             labels={'Inhibition Prob': 'Probability Score'},
             height=max(400, len(data) * 30)
         )
+        # Visualizing the decision boundary and "ambiguous zone"
+        fig.add_vrect(x0=0.35, x1=0.65, fillcolor="gray", opacity=0.1, annotation_text="Ambiguous Zone", annotation_position="top left")
         fig.update_layout(xaxis_range=[0, 1])
         st.plotly_chart(fig, use_container_width=True)
 
+# --- SPECIFICATIONS (SCIENTIFIC DISCLAIMER ADDED) ---
 with t3:
     st.write("### Platform Architecture")
     st.markdown("""
     - **Inference Engine:** XGBoost Framework (Native JSON Serialization)
     - **Molecular Encoding:** RDKit MorganGenerator (Modern API)
-    - **Data Ingestion:** Smart CSV Validation with Auto-Normalization
+    - **Scientific Validation:**
+        - **Confidence Estimation:** Distance-to-boundary heuristic enabled.
+        - **Applicability Domain:** Users are advised to verify structural similarity to the BACE1 training set (ChEMBL).
     - **Identification:** Local Serial Nomenclature (C-n)
     """)
