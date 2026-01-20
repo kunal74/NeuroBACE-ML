@@ -5,8 +5,7 @@ import xgboost as xgb
 import base64
 from rdkit import Chem
 from rdkit.Chem import AllChem
-# Import the new generator module
-from rdkit.Chem import rdFingerprintGenerator 
+from rdkit.Chem import rdFingerprintGenerator # Modern API Import
 import plotly.express as px
 import os
 
@@ -50,9 +49,9 @@ st.markdown(f"""
 with st.sidebar:
     st.markdown("---")
     threshold = st.slider("Probability Threshold (P ≥ 0.7 = Active)", 0.0, 1.0, 0.70, 0.01)
-    st.caption("v1.1")
+    st.caption("v1.2")
 
-# --- PREDICTION ENGINE (UPDATED FINGERPRINTS) ---
+# --- PREDICTION ENGINE (JSON NATIVE) ---
 @st.cache_resource
 def load_model():
     json_file = 'BACE1_optimized_model.json'
@@ -69,18 +68,16 @@ def load_model():
 
 model = load_model()
 
-# Initialize the new RDKit Generator
-# This replaces the legacy GetMorganFingerprintAsBitVect call
+# --- FINGERPRINT GENERATOR (MODERN API) ---
+# Initializing the modern generator to replace legacy AllChem calls
 mfpgen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
 
 def run_prediction(smiles):
     try:
         mol = Chem.MolFromSmiles(smiles)
         if mol:
-            # Modern API call for fingerprint generation
+            # Future-proof generation using GetFingerprintAsNumPy
             fp = mfpgen.GetFingerprintAsNumPy(mol)
-            
-            # Reshape for XGBoost
             dmatrix = xgb.DMatrix(fp.reshape(1, -1))
             prediction = model.predict(dmatrix)
             return round(float(prediction[0]), 4)
@@ -168,8 +165,7 @@ with t1:
                 )
                 st.download_button("Export Results", df_res.to_csv(index=False), "NeuroBACE_Report.csv")
 
-# --- VISUAL ANALYTICS & ARCHITECTURE TABS REMAIN SAME ---
-# (Include the rest of the code from the previous version here)
+# --- TAB 2: VISUAL ANALYTICS ---
 with t2:
     if 'results' in st.session_state:
         st.markdown("### Predictive Probability Distribution")
@@ -190,11 +186,12 @@ with t2:
         fig.update_layout(xaxis_range=[0, 1])
         st.plotly_chart(fig, use_container_width=True)
 
+# --- TAB 3: SPECIFICATIONS (UPDATED) ---
 with t3:
     st.write("### Platform Architecture")
     st.markdown("""
-    - **Architecture:** Optimized XGBoost Framework (JSON Native)
-    - **Optimization:** Bayesian Framework via Optuna
-    - **Feature Extraction:** 2048-bit Morgan Fingerprints (Modern Generator API)
-    - **Identification:** Internal Serial Naming (C-n)
+    - **Inference Engine:** XGBoost Framework (Native JSON Serialization)
+    - **Molecular Encoding:** RDKit MorganGenerator (2048-bit, Radius=2) [Modern API]
+    - **Optimization:** Bayesian Hyperparameter Tuning via Optuna
+    - **Identification:** Local Serial Nomenclature (C-n)
     """)
