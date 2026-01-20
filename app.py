@@ -49,7 +49,9 @@ st.markdown(f"""
 with st.sidebar:
     st.markdown("---")
     threshold = st.slider("Decision Threshold (Validation Optimized)", 0.0, 1.0, 0.70, 0.01)
-    st.caption("v1.6 | Publication Ready")
+    
+    # Updated: Reverted to simple versioning
+    st.caption("v1.0") 
 
 # --- PREDICTION ENGINE ---
 @st.cache_resource
@@ -231,7 +233,7 @@ with t2:
         fig.update_layout(xaxis_range=[0, 1])
         st.plotly_chart(fig, use_container_width=True)
 
-# --- SPECIFICATIONS (UPDATED FOR TRUTHFULNESS) ---
+# --- SPECIFICATIONS ---
 with t3:
     st.write("### Platform Architecture")
     st.markdown("""
