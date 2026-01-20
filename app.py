@@ -49,25 +49,21 @@ st.markdown(f"""
 with st.sidebar:
     st.markdown("---")
     threshold = st.slider("Probability Threshold (P ≥ 0.7 = Active)", 0.0, 1.0, 0.70, 0.01)
-    st.caption("v1.3 | Robust Error Handling")
+    st.caption("v1.4 | Smart CSV Validation")
 
-# --- PREDICTION ENGINE (ROBUST ERROR HANDLING) ---
+# --- PREDICTION ENGINE ---
 @st.cache_resource
 def load_model():
     json_file = 'BACE1_optimized_model.json'
-    
-    # Specific Feedback 1: File Existence
     if not os.path.exists(json_file):
-        st.error(f"🚨 Critical Error: Model file '{json_file}' is missing from the repository.")
+        st.error(f"🚨 Critical Error: Model file '{json_file}' is missing.")
         return None
-    
     try:
         model = xgb.Booster()
         model.load_model(json_file)
         return model
     except xgb.core.XGBoostError as e:
-        # Specific Feedback 2: Version Incompatibility
-        st.error(f"🚨 Model Error: The model file is corrupt or incompatible with this XGBoost version. Details: {e}")
+        st.error(f"🚨 Model Error: Corrupt or incompatible file. Details: {e}")
         return None
     except Exception as e:
         st.error(f"🚨 Unexpected Error: {e}")
@@ -81,8 +77,7 @@ mfpgen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
 def run_prediction(smiles):
     try:
         if not smiles or not isinstance(smiles, str):
-            return None # Handle empty inputs
-            
+            return None 
         mol = Chem.MolFromSmiles(smiles)
         if mol:
             fp = mfpgen.GetFingerprintAsNumPy(mol)
@@ -90,7 +85,7 @@ def run_prediction(smiles):
             prediction = model.predict(dmatrix)
             return round(float(prediction[0]), 4)
     except Exception:
-        return None # Return None to signal failure to the screening loop
+        return None 
     return None
 
 # --- HEADER ---
@@ -102,7 +97,6 @@ def get_base64_image(image_path):
     except: return None
 
 logo_url = get_base64_image("logo.png") 
-
 if logo_url:
     logo_html = f'<img src="{logo_url}" width="120" style="margin-right: 15px;">'
 else:
@@ -124,27 +118,44 @@ st.write("---")
 
 t1, t2, t3 = st.tabs([":material/science: Screening Engine", ":material/monitoring: Visual Analytics", ":material/settings: Specifications"])
 
-# --- TAB 1: SCREENING ENGINE (USER FEEDBACK) ---
+# --- TAB 1: SCREENING ENGINE (SMART CSV LOGIC) ---
 with t1:
     in_type = st.radio("Input Source", ["Manual Entry", "Batch Upload (CSV)"], horizontal=True)
     mols = []
+    
     if in_type == "Manual Entry":
         raw = st.text_area("SMILES (one per line):", "COc1cc2c(cc1OC)C(=O)C(CC2)Cc3ccn(cc3)Cc4ccccc4")
         mols = [s.strip() for s in raw.split('\n') if s.strip()]
-    else:
-        f = st.file_uploader("Upload CSV")
+    
+    else: # Batch Upload Logic
+        f = st.file_uploader("Upload CSV (Required column: 'smiles')")
         if f: 
-            df_in = pd.read_csv(f)
-            mols = df_in['smiles'].tolist() if 'smiles' in df_in.columns else []
+            try:
+                df_in = pd.read_csv(f)
+                # Robust Column Validation
+                # Normalizes headers to lowercase to allow 'SMILES', 'Smiles', or 'smiles'
+                df_in.columns = [c.lower().strip() for c in df_in.columns]
+                
+                if 'smiles' in df_in.columns:
+                    mols = df_in['smiles'].dropna().astype(str).tolist()
+                    st.success(f"✅ Successfully loaded {len(mols)} molecules.")
+                else:
+                    st.error("❌ CSV Error: Missing required column 'smiles'. Please check your file headers.")
+            except Exception as e:
+                st.error(f"❌ File Error: Could not parse CSV. {e}")
 
     if st.button("Start Virtual Screening"):
         if model is None:
-            st.error("❌ Action Halted: Model is not loaded. Please check the 'load_model' error above.")
+            st.error("❌ Action Halted: Model is not loaded.")
         elif not mols:
-            st.warning("⚠️ Input Warning: No SMILES found to screen.")
+            # Differentiate between "Empty File" and "No File Uploaded"
+            if in_type == "Batch Upload (CSV)" and f is not None:
+                st.warning("⚠️ The uploaded file contains no valid SMILES entries.")
+            else:
+                st.warning("⚠️ Please provide input data.")
         else:
             res = []
-            invalid_count = 0 # Track skipped molecules
+            invalid_count = 0 
             
             bar = st.progress(0)
             for i, s in enumerate(mols):
@@ -157,12 +168,11 @@ with t1:
                         "SMILES": s
                     })
                 else:
-                    invalid_count += 1 # Increment error counter
+                    invalid_count += 1 
                 bar.progress((i + 1) / len(mols))
             
-            # Explicit Feedback on Screening Quality
             if invalid_count > 0:
-                st.warning(f"⚠️ Note: {invalid_count} molecule(s) were skipped due to invalid SMILES syntax or processing errors.")
+                st.warning(f"⚠️ Note: {invalid_count} molecule(s) were skipped due to errors.")
 
             if res:
                 df_res = pd.DataFrame(res)
@@ -181,7 +191,7 @@ with t1:
                 )
                 st.download_button("Export Results", df_res.to_csv(index=False), "NeuroBACE_Report.csv")
 
-# --- TAB 2 & 3: VISUALS & SPECS ---
+# --- VISUAL ANALYTICS & SPECS ---
 with t2:
     if 'results' in st.session_state:
         st.markdown("### Predictive Probability Distribution")
@@ -198,7 +208,6 @@ with t2:
             labels={'Inhibition Prob': 'Probability Score'},
             height=max(400, len(data) * 30)
         )
-        
         fig.update_layout(xaxis_range=[0, 1])
         st.plotly_chart(fig, use_container_width=True)
 
@@ -207,6 +216,6 @@ with t3:
     st.markdown("""
     - **Inference Engine:** XGBoost Framework (Native JSON Serialization)
     - **Molecular Encoding:** RDKit MorganGenerator (Modern API)
-    - **Error Handling:** Granular Exception Management & Input Validation
+    - **Data Ingestion:** Smart CSV Validation with Auto-Normalization
     - **Identification:** Local Serial Nomenclature (C-n)
     """)
