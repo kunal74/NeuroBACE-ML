@@ -49,7 +49,7 @@ st.markdown(f"""
 with st.sidebar:
     st.markdown("---")
     threshold = st.slider("Decision Threshold (Validation Optimized)", 0.0, 1.0, 0.70, 0.01)
-    st.caption("v1.1 | High-Performance Batching")
+    st.caption("v1.2 | Robust Safety & Batching")
 
 # --- PREDICTION ENGINE ---
 @st.cache_resource
@@ -82,23 +82,42 @@ def get_confidence_level(prob):
     else:
         return "HIGH"
 
-# REFACTORED: Single molecule processor (Generate Fingerprint Only)
 def get_fingerprint(smiles):
+    """Generates explicit bit-vector fingerprint securely."""
     try:
         if not smiles or not isinstance(smiles, str):
             return None
         mol = Chem.MolFromSmiles(smiles)
         if mol:
-            # Explicit Bit-Vector Generation (Scientific Correctness)
             fp_bitvect = mfpgen.GetFingerprint(mol)
-            
-            # Create a fixed-size numpy array for the bit vector
             fp = np.zeros((2048,), dtype=np.int8) 
             DataStructs.ConvertToNumpyArray(fp_bitvect, fp)
             return fp
     except:
         return None
     return None
+
+# FIX FOR DEFICIENCY #3: Robust Batch Inference Function
+def run_batch_inference(model, valid_fps):
+    """
+    Defensively handles inference. 
+    Returns raw probabilities or None if model/data is invalid.
+    """
+    # 1. Safety Guard: Explicitly check if model is None inside the function
+    if model is None:
+        return None 
+    
+    # 2. Safety Guard: Check for empty data
+    if not valid_fps:
+        return None
+
+    try:
+        # 3. Vectorized Prediction
+        X_batch = np.vstack(valid_fps)
+        dmatrix_batch = xgb.DMatrix(X_batch)
+        return model.predict(dmatrix_batch)
+    except Exception:
+        return None
 
 # --- HEADER ---
 def get_base64_image(image_path):
@@ -130,7 +149,7 @@ st.write("---")
 
 t1, t2, t3 = st.tabs([":material/science: Screening Engine", ":material/monitoring: Visual Analytics", ":material/settings: Specifications"])
 
-# --- TAB 1: SCREENING ENGINE (VECTORIZED) ---
+# --- TAB 1: SCREENING ENGINE ---
 with t1:
     in_type = st.radio("Input Source", ["Manual Entry", "Batch Upload (CSV)"], horizontal=True)
     mols = []
@@ -159,14 +178,13 @@ with t1:
         elif not mols:
             st.warning("⚠️ Please provide input data.")
         else:
-            # PHASE 1: PREPARATION (Vectorized Fingerprint Generation)
+            # PHASE 1: PREPARATION
             valid_fps = []
             valid_smiles = []
             valid_indices = []
             skipped_count = 0
             
             status_bar = st.progress(0, text="Generating molecular fingerprints...")
-            
             start_time = time.time()
             
             for i, s in enumerate(mols):
@@ -178,101 +196,7 @@ with t1:
                 else:
                     skipped_count += 1
                 
-                # Update bar occasionally to avoid UI lag
                 if i % 10 == 0 or i == len(mols) - 1:
                     status_bar.progress((i + 1) / len(mols), text=f"Processed {i+1}/{len(mols)} molecules")
             
-            # PHASE 2: INFERENCE (Single Batch Call)
-            if valid_fps:
-                status_bar.progress(0.9, text="Running XGBoost inference engine...")
-                
-                # Stack all fingerprints into a single 2D Numpy Matrix (N x 2048)
-                X_batch = np.vstack(valid_fps)
-                
-                # Create ONE DMatrix for the whole batch
-                dmatrix_batch = xgb.DMatrix(X_batch)
-                
-                # Predict ONCE
-                probs_batch = model.predict(dmatrix_batch)
-                
-                # Map results back
-                res = []
-                for idx, (smile, p) in enumerate(zip(valid_smiles, probs_batch)):
-                    prob_val = float(p)
-                    res.append({
-                        "Compounds": f"C-{valid_indices[idx]+1}", 
-                        "Inhibition Prob": round(prob_val, 4), 
-                        "Model Confidence": get_confidence_level(prob_val), 
-                        "Result": "ACTIVE" if prob_val >= threshold else "INACTIVE",
-                        "SMILES": smile
-                    })
-                
-                status_bar.empty() # Remove progress bar on completion
-                
-                # Calculate processing time
-                total_time = time.time() - start_time
-                st.toast(f"Screening complete in {total_time:.2f} seconds!", icon="🚀")
-
-                if skipped_count > 0:
-                    st.warning(f"⚠️ Note: {skipped_count} molecule(s) skipped due to invalid structure.")
-
-                df_res = pd.DataFrame(res)
-                st.session_state['results'] = df_res
-                
-                c1_m, c2_m, c3_m = st.columns(3)
-                c1_m.metric("Molecules Processed", len(df_res))
-                c2_m.metric("Potent Hits", len(df_res[df_res['Result'] == "ACTIVE"]))
-                c3_m.metric("Max Probability", f"{df_res['Inhibition Prob'].max():.2%}")
-                
-                st.write("---")
-                
-                def highlight_low_conf(row):
-                    if "LOW" in row['Model Confidence']:
-                        return ['background-color: #3f3f3f; color: #ffa500'] * len(row)
-                    return [''] * len(row)
-
-                st.dataframe(
-                    df_res.style.background_gradient(subset=['Inhibition Prob'], cmap='RdYlGn')
-                          .apply(highlight_low_conf, axis=1), 
-                    use_container_width=True,
-                    hide_index=True
-                )
-                st.download_button("Export Results", df_res.to_csv(index=False), "NeuroBACE_Report.csv")
-            else:
-                st.error("❌ No valid fingerprints could be generated.")
-
-# --- VISUAL ANALYTICS ---
-with t2:
-    if 'results' in st.session_state:
-        st.markdown("### Predictive Probability Distribution")
-        data = st.session_state['results'].sort_values('Inhibition Prob', ascending=True)
-        
-        fig = px.bar(
-            data, 
-            y='Compounds', 
-            x='Inhibition Prob', 
-            orientation='h',
-            color='Inhibition Prob',
-            color_continuous_scale=[[0, 'red'], [0.5, 'yellow'], [1, 'green']],
-            template=plotly_temp,
-            hover_data=["Model Confidence", "SMILES"], 
-            labels={'Inhibition Prob': 'Probability Score'},
-            height=max(400, len(data) * 30)
-        )
-        fig.add_vrect(x0=0.35, x1=0.65, fillcolor="gray", opacity=0.1, annotation_text="Ambiguous Zone", annotation_position="top left")
-        fig.update_layout(xaxis_range=[0, 1])
-        st.plotly_chart(fig, use_container_width=True)
-
-# --- SPECIFICATIONS ---
-with t3:
-    st.write("### Platform Architecture")
-    st.markdown("""
-    - **Inference Engine:** XGBoost Framework (Native JSON Serialization)
-    - **Processing:** Vectorized Batch Inference (High Performance)
-    - **Molecular Encoding:** RDKit MorganGenerator (Explicit Bit-Vector)
-    - **Optimization:** Bayesian Hyperparameter Tuning via Optuna (Offline Training Phase)
-    - **Scientific Validation:**
-        - **Confidence Estimation:** Distance-to-boundary heuristic enabled.
-        - **Applicability Domain:** Users are advised to verify structural similarity to the BACE1 training set (ChEMBL).
-    - **Identification:** Local Serial Nomenclature (C-n)
-    """)
+            # PHASE 2: IN
