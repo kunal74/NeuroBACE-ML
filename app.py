@@ -281,16 +281,27 @@ with t2:
         st.markdown("### Predictive Probability Distribution")
         data = st.session_state['results'].sort_values('Inhibition Prob', ascending=True)
         
+        # Keep plot colors consistent with the table "traffic light" rules by fixing the color range to [0, 1]
+        # and using the same breakpoints: <0.30 red, 0.30–0.50 orange, 0.50–0.70 yellow, 0.70–0.90 light green, ≥0.90 green.
+        traffic_scale = [
+            [0.00, "#dc2626"], [0.2999, "#dc2626"],  # red
+            [0.30, "#fb923c"], [0.4999, "#fb923c"],  # orange
+            [0.50, "#facc15"], [0.6999, "#facc15"],  # yellow
+            [0.70, "#65a30d"], [0.8999, "#65a30d"],  # light green
+            [0.90, "#16a34a"], [1.00, "#16a34a"],    # green
+        ]
+
         fig = px.bar(
-            data, 
-            y='Compounds', 
-            x='Inhibition Prob', 
-            orientation='h',
-            color='Inhibition Prob',
-            color_continuous_scale=[[0, 'red'], [0.5, 'yellow'], [1, 'green']],
+            data,
+            y="Compounds",
+            x="Inhibition Prob",
+            orientation="h",
+            color="Inhibition Prob",
+            range_color=[0, 1],
+            color_continuous_scale=traffic_scale,
             template=plotly_temp,
-            hover_data=["Model Confidence", "SMILES"], 
-            labels={'Inhibition Prob': 'Probability Score'},
+            hover_data=["Model Confidence", "SMILES"],
+            labels={"Inhibition Prob": "Probability Score"},
             height=max(400, len(data) * 30)
         )
 
