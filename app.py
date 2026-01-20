@@ -3,11 +3,11 @@ import pandas as pd
 import numpy as np
 import xgboost as xgb
 import base64
-from rdkit import Chem, DataStructs # Added DataStructs for explicit conversion
-from rdkit.Chem import AllChem
+from rdkit import Chem, DataStructs
 from rdkit.Chem import rdFingerprintGenerator
 import plotly.express as px
 import os
+import time
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="NeuroBACE-ML", page_icon="🧠", layout="wide")
@@ -49,7 +49,7 @@ st.markdown(f"""
 with st.sidebar:
     st.markdown("---")
     threshold = st.slider("Decision Threshold (Validation Optimized)", 0.0, 1.0, 0.70, 0.01)
-    st.caption("v1.0")
+    st.caption("v1.1 | High-Performance Batching")
 
 # --- PREDICTION ENGINE ---
 @st.cache_resource
@@ -82,31 +82,22 @@ def get_confidence_level(prob):
     else:
         return "HIGH"
 
-def run_prediction(smiles):
+# REFACTORED: Single molecule processor (Generate Fingerprint Only)
+def get_fingerprint(smiles):
     try:
         if not smiles or not isinstance(smiles, str):
-            return None 
+            return None
         mol = Chem.MolFromSmiles(smiles)
         if mol:
-            # FIX FOR DEFICIENCY #6: Explicit Bit-Vector Generation
-            # 1. Generate Explicit Bit Vector (Strictly 0/1)
+            # Explicit Bit-Vector Generation (Scientific Correctness)
             fp_bitvect = mfpgen.GetFingerprint(mol)
             
-            # 2. Convert to NumPy Array securely
-            fp = np.zeros((0,), dtype=np.int8)
+            # Create a fixed-size numpy array for the bit vector
+            fp = np.zeros((2048,), dtype=np.int8) 
             DataStructs.ConvertToNumpyArray(fp_bitvect, fp)
-            
-            # 3. Predict
-            dmatrix = xgb.DMatrix(fp.reshape(1, -1))
-            prediction = model.predict(dmatrix)
-            prob = float(prediction[0])
-            
-            return {
-                "prob": round(prob, 4),
-                "confidence": get_confidence_level(prob)
-            }
-    except Exception:
-        return None 
+            return fp
+    except:
+        return None
     return None
 
 # --- HEADER ---
@@ -139,7 +130,7 @@ st.write("---")
 
 t1, t2, t3 = st.tabs([":material/science: Screening Engine", ":material/monitoring: Visual Analytics", ":material/settings: Specifications"])
 
-# --- TAB 1: SCREENING ENGINE ---
+# --- TAB 1: SCREENING ENGINE (VECTORIZED) ---
 with t1:
     in_type = st.radio("Input Source", ["Manual Entry", "Batch Upload (CSV)"], horizontal=True)
     mols = []
@@ -166,34 +157,65 @@ with t1:
         if model is None:
             st.error("❌ Action Halted: Model is not loaded.")
         elif not mols:
-            if in_type == "Batch Upload (CSV)" and f is not None:
-                st.warning("⚠️ The uploaded file contains no valid SMILES entries.")
-            else:
-                st.warning("⚠️ Please provide input data.")
+            st.warning("⚠️ Please provide input data.")
         else:
-            res = []
-            invalid_count = 0 
+            # PHASE 1: PREPARATION (Vectorized Fingerprint Generation)
+            valid_fps = []
+            valid_smiles = []
+            valid_indices = []
+            skipped_count = 0
             
-            bar = st.progress(0)
+            status_bar = st.progress(0, text="Generating molecular fingerprints...")
+            
+            start_time = time.time()
+            
             for i, s in enumerate(mols):
-                pred_data = run_prediction(s)
-                if pred_data is not None:
-                    p = pred_data["prob"]
-                    res.append({
-                        "Compounds": f"C-{i+1}", 
-                        "Inhibition Prob": p, 
-                        "Model Confidence": pred_data["confidence"], 
-                        "Result": "ACTIVE" if p >= threshold else "INACTIVE",
-                        "SMILES": s
-                    })
+                fp = get_fingerprint(s)
+                if fp is not None:
+                    valid_fps.append(fp)
+                    valid_smiles.append(s)
+                    valid_indices.append(i)
                 else:
-                    invalid_count += 1 
-                bar.progress((i + 1) / len(mols))
+                    skipped_count += 1
+                
+                # Update bar occasionally to avoid UI lag
+                if i % 10 == 0 or i == len(mols) - 1:
+                    status_bar.progress((i + 1) / len(mols), text=f"Processed {i+1}/{len(mols)} molecules")
             
-            if invalid_count > 0:
-                st.warning(f"⚠️ Note: {invalid_count} molecule(s) skipped due to errors.")
+            # PHASE 2: INFERENCE (Single Batch Call)
+            if valid_fps:
+                status_bar.progress(0.9, text="Running XGBoost inference engine...")
+                
+                # Stack all fingerprints into a single 2D Numpy Matrix (N x 2048)
+                X_batch = np.vstack(valid_fps)
+                
+                # Create ONE DMatrix for the whole batch
+                dmatrix_batch = xgb.DMatrix(X_batch)
+                
+                # Predict ONCE
+                probs_batch = model.predict(dmatrix_batch)
+                
+                # Map results back
+                res = []
+                for idx, (smile, p) in enumerate(zip(valid_smiles, probs_batch)):
+                    prob_val = float(p)
+                    res.append({
+                        "Compounds": f"C-{valid_indices[idx]+1}", 
+                        "Inhibition Prob": round(prob_val, 4), 
+                        "Model Confidence": get_confidence_level(prob_val), 
+                        "Result": "ACTIVE" if prob_val >= threshold else "INACTIVE",
+                        "SMILES": smile
+                    })
+                
+                status_bar.empty() # Remove progress bar on completion
+                
+                # Calculate processing time
+                total_time = time.time() - start_time
+                st.toast(f"Screening complete in {total_time:.2f} seconds!", icon="🚀")
 
-            if res:
+                if skipped_count > 0:
+                    st.warning(f"⚠️ Note: {skipped_count} molecule(s) skipped due to invalid structure.")
+
                 df_res = pd.DataFrame(res)
                 st.session_state['results'] = df_res
                 
@@ -216,6 +238,8 @@ with t1:
                     hide_index=True
                 )
                 st.download_button("Export Results", df_res.to_csv(index=False), "NeuroBACE_Report.csv")
+            else:
+                st.error("❌ No valid fingerprints could be generated.")
 
 # --- VISUAL ANALYTICS ---
 with t2:
@@ -244,6 +268,7 @@ with t3:
     st.write("### Platform Architecture")
     st.markdown("""
     - **Inference Engine:** XGBoost Framework (Native JSON Serialization)
+    - **Processing:** Vectorized Batch Inference (High Performance)
     - **Molecular Encoding:** RDKit MorganGenerator (Explicit Bit-Vector)
     - **Optimization:** Bayesian Hyperparameter Tuning via Optuna (Offline Training Phase)
     - **Scientific Validation:**
