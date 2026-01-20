@@ -15,6 +15,10 @@ MODEL_FILE = "BACE1_option1_binary_xgb.json"         # your saved Booster JSON
 THRESH_FILE = "BACE1_option1_threshold.txt"          # contains: 0.70
 DEFAULT_THRESHOLD_FALLBACK = 0.70
 
+BASE_DIR = Path(__file__).resolve().parent
+MODEL_PATH = BASE_DIR / MODEL_FILE
+THRESH_PATH = BASE_DIR / THRESH_FILE
+
 def read_threshold_file(path: str, fallback: float = DEFAULT_THRESHOLD_FALLBACK) -> float:
     try:
         if os.path.exists(path):
@@ -64,22 +68,25 @@ st.markdown(f"""
 # --- SIDEBAR CONTROLS ---
 with st.sidebar:
     st.markdown("---")
-    default_thr = read_threshold_file(THRESH_FILE, DEFAULT_THRESHOLD_FALLBACK)
+    default_thr = read_threshold_file(str(THRESH_PATH), DEFAULT_THRESHOLD_FALLBACK)
     threshold = st.slider("Operating Threshold (finalized default)", 0.0, 1.0, float(default_thr), 0.01)
     st.caption(f"Default threshold loaded: {default_thr:.2f} (recommended)")
     st.caption("v1.2 | Binary Option-1 (≤100 nM vs ≥1 µM) | Threshold default = 0.70")
 
 # --- PREDICTION ENGINE ---
 @st.cache_resource
-def load_model():
-    json_file = MODEL_FILE
-    if not os.path.exists(json_file):
-        st.error(f"🚨 Critical Error: Model file '{json_file}' is missing.")
+def load_model(model_path: str, mtime: float):
+    """Load XGBoost Booster from JSON.
+
+    'mtime' is only used to bust Streamlit cache when the model file changes.
+    """
+    if not os.path.exists(model_path):
+        st.error(f"🚨 Critical Error: Model file is missing. Expected at: {MODEL_PATH}")
         return None
     try:
-        model = xgb.Booster()
-        model.load_model(json_file)
-        return model
+        m = xgb.Booster()
+        m.load_model(model_path)
+        return m
     except xgb.core.XGBoostError as e:
         st.error(f"🚨 Model Error: {e}")
         return None
@@ -87,7 +94,8 @@ def load_model():
         st.error(f"🚨 Unexpected Error: {e}")
         return None
 
-model = load_model()
+model_mtime = MODEL_PATH.stat().st_mtime if MODEL_PATH.exists() else 0.0
+model = load_model(str(MODEL_PATH), model_mtime)
 mfpgen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
 
 # --- SCIENTIFIC HELPER FUNCTIONS ---
@@ -95,7 +103,7 @@ def get_confidence_level(prob: float, thr: float) -> str:
     """Heuristic confidence: distance from the decision threshold."""
     dist = abs(prob - thr)
     if dist < 0.05:
-        return "LOW (Ambiguous)"
+        return "LOW"
     elif dist < 0.15:
         return "MEDIUM"
     else:
@@ -145,7 +153,8 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
-st.write("---")
+st.write('---')
+                st.info(f"P(Active) is the model probability of being ACTIVE. Current operating threshold = {thr_used:.2f}.")
 
 t1, t2, t3 = st.tabs([":material/science: Screening Engine", ":material/monitoring: Visual Analytics", ":material/settings: Specifications"])
 
@@ -253,8 +262,7 @@ with t1:
                     return [''] * len(row)
 
                 st.dataframe(
-                    df_res.style.background_gradient(subset=['P(Active)'], cmap='RdYlGn')
-                          .apply(highlight_low_conf, axis=1), 
+                    df_res.style.format({'P(Active)': '{:.3f}'}).apply(highlight_low_conf, axis=1), 
                     use_container_width=True,
                     hide_index=True
                 )
@@ -281,9 +289,7 @@ with t2:
             height=max(400, len(data) * 30)
         )
         thr_plot = float(st.session_state.get('threshold_used', threshold))
-        x0 = max(0.0, thr_plot - 0.10)
-        x1 = min(1.0, thr_plot + 0.10)
-        fig.add_vrect(x0=x0, x1=x1, fillcolor="gray", opacity=0.12, annotation_text="Ambiguous Zone", annotation_position="top left")
+
         fig.add_vline(x=thr_plot, line_dash="dash", annotation_text=f"Threshold={thr_plot:.2f}", annotation_position="top")
         fig.update_layout(xaxis_range=[0, 1])
         st.plotly_chart(fig, use_container_width=True)
