@@ -1,10 +1,12 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import xgboost as xgb # CRITICAL: This must be imported
+import xgboost as xgb
 import base64
 from rdkit import Chem
 from rdkit.Chem import AllChem
+# Import the new generator module
+from rdkit.Chem import rdFingerprintGenerator 
 import plotly.express as px
 import os
 
@@ -48,22 +50,16 @@ st.markdown(f"""
 with st.sidebar:
     st.markdown("---")
     threshold = st.slider("Probability Threshold (P ≥ 0.7 = Active)", 0.0, 1.0, 0.70, 0.01)
-    st.caption("v1.0")
+    st.caption("v1.1")
 
-# --- PREDICTION ENGINE (DEBUGGED) ---
+# --- PREDICTION ENGINE (UPDATED FINGERPRINTS) ---
 @st.cache_resource
 def load_model():
-    # Define the exact filename
     json_file = 'BACE1_optimized_model.json'
-    
-    # Debug Check 1: Does the file exist?
     if not os.path.exists(json_file):
-        st.error(f"⚠️ CRITICAL ERROR: File '{json_file}' not found in directory.")
-        st.write("Current files:", os.listdir()) # Show what files ARE there
+        st.error(f"⚠️ CRITICAL ERROR: File '{json_file}' not found.")
         return None
-
     try:
-        # Debug Check 2: Try loading with XGBoost
         model = xgb.Booster()
         model.load_model(json_file)
         return model
@@ -73,12 +69,19 @@ def load_model():
 
 model = load_model()
 
+# Initialize the new RDKit Generator
+# This replaces the legacy GetMorganFingerprintAsBitVect call
+mfpgen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
+
 def run_prediction(smiles):
     try:
         mol = Chem.MolFromSmiles(smiles)
         if mol:
-            fp = AllChem.GetMorganFingerprintAsBitVect(mol, radius=2, nBits=2048)
-            dmatrix = xgb.DMatrix(np.array(fp).reshape(1, -1))
+            # Modern API call for fingerprint generation
+            fp = mfpgen.GetFingerprintAsNumPy(mol)
+            
+            # Reshape for XGBoost
+            dmatrix = xgb.DMatrix(fp.reshape(1, -1))
             prediction = model.predict(dmatrix)
             return round(float(prediction[0]), 4)
     except Exception as e:
@@ -130,12 +133,10 @@ with t1:
             mols = df_in['smiles'].tolist() if 'smiles' in df_in.columns else []
 
     if st.button("Start Virtual Screening"):
-        # Explicit Error Handling for the Button
         if model is None:
-            st.error("❌ Action Failed: The model is not loaded.")
-            st.warning("Please check if 'BACE1_optimized_model.json' is uploaded to GitHub.")
+            st.error("❌ Model not loaded.")
         elif not mols:
-            st.warning("⚠️ No SMILES found. Please enter valid molecules.")
+            st.warning("⚠️ No SMILES found.")
         else:
             res = []
             bar = st.progress(0)
@@ -166,9 +167,9 @@ with t1:
                     hide_index=True
                 )
                 st.download_button("Export Results", df_res.to_csv(index=False), "NeuroBACE_Report.csv")
-            else:
-                st.error("Prediction failed. Please check your SMILES input.")
 
+# --- VISUAL ANALYTICS & ARCHITECTURE TABS REMAIN SAME ---
+# (Include the rest of the code from the previous version here)
 with t2:
     if 'results' in st.session_state:
         st.markdown("### Predictive Probability Distribution")
@@ -194,6 +195,6 @@ with t3:
     st.markdown("""
     - **Architecture:** Optimized XGBoost Framework (JSON Native)
     - **Optimization:** Bayesian Framework via Optuna
-    - **Feature Extraction:** 2048-bit Morgan Fingerprints (Radius=2)
+    - **Feature Extraction:** 2048-bit Morgan Fingerprints (Modern Generator API)
     - **Identification:** Internal Serial Naming (C-n)
     """)
