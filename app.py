@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import pickle
+import xgboost as xgb # CRITICAL: This must be imported
 import base64
 from rdkit import Chem
 from rdkit.Chem import AllChem
@@ -31,14 +31,11 @@ st.markdown(f"""
     <style>
     .stApp {{ background-color: {bg} !important; color: {text} !important; }}
     [data-testid="stSidebar"] {{ background-color: {bg} !important; border-right: 1px solid {accent}33; }}
-    
     h1, h2, h3, h4, label, span, p, [data-testid="stWidgetLabel"] p, .stMarkdown p {{ 
         color: {text} !important; opacity: 1 !important; 
     }}
-    
     [data-testid="stMetric"] {{ background-color: {card} !important; border: 1px solid {accent}44 !important; border-radius: 12px; }}
     [data-testid="stMetricValue"] div {{ color: {accent} !important; font-weight: bold; }}
-
     .stButton>button {{ 
         background: linear-gradient(90deg, #0ea5e9, #2563eb) !important; 
         color: white !important; font-weight: bold !important; border-radius: 8px !important;
@@ -53,39 +50,42 @@ with st.sidebar:
     threshold = st.slider("Probability Threshold (P ≥ 0.7 = Active)", 0.0, 1.0, 0.70, 0.01)
     st.caption("v1.0")
 
-import xgboost as xgb # Ensure xgboost is imported at the top
-
-# --- PREDICTION ENGINE (UPDATED FOR NATIVE JSON) ---
+# --- PREDICTION ENGINE (DEBUGGED) ---
 @st.cache_resource
 def load_model():
+    # Define the exact filename
+    json_file = 'BACE1_optimized_model.json'
+    
+    # Debug Check 1: Does the file exist?
+    if not os.path.exists(json_file):
+        st.error(f"⚠️ CRITICAL ERROR: File '{json_file}' not found in directory.")
+        st.write("Current files:", os.listdir()) # Show what files ARE there
+        return None
+
     try:
-        # Initialize a raw Booster object
+        # Debug Check 2: Try loading with XGBoost
         model = xgb.Booster()
-        # Load the native JSON model
-        model.load_model('BACE1_optimized_model.json')
+        model.load_model(json_file)
         return model
     except Exception as e:
-        st.error(f"Error loading model: {e}")
+        st.error(f"⚠️ Error loading model: {e}")
         return None
 
 model = load_model()
 
 def run_prediction(smiles):
-    mol = Chem.MolFromSmiles(smiles)
-    if mol:
-        # Generate fingerprints
-        fp = AllChem.GetMorganFingerprintAsBitVect(mol, radius=2, nBits=2048)
-        
-        # Convert fingerprints to DMatrix (required for Booster objects)
-        dmatrix = xgb.DMatrix(np.array(fp).reshape(1, -1))
-        
-        # Predict probability
-        # Booster.predict returns an array of probabilities
-        prediction = model.predict(dmatrix)
-        return round(float(prediction[0]), 4)
+    try:
+        mol = Chem.MolFromSmiles(smiles)
+        if mol:
+            fp = AllChem.GetMorganFingerprintAsBitVect(mol, radius=2, nBits=2048)
+            dmatrix = xgb.DMatrix(np.array(fp).reshape(1, -1))
+            prediction = model.predict(dmatrix)
+            return round(float(prediction[0]), 4)
+    except Exception as e:
+        return None
     return None
 
-# --- HEADER WITH TIGHT ALIGNMENT ---
+# --- HEADER ---
 def get_base64_image(image_path):
     try:
         with open(image_path, "rb") as f:
@@ -130,7 +130,13 @@ with t1:
             mols = df_in['smiles'].tolist() if 'smiles' in df_in.columns else []
 
     if st.button("Start Virtual Screening"):
-        if model and mols:
+        # Explicit Error Handling for the Button
+        if model is None:
+            st.error("❌ Action Failed: The model is not loaded.")
+            st.warning("Please check if 'BACE1_optimized_model.json' is uploaded to GitHub.")
+        elif not mols:
+            st.warning("⚠️ No SMILES found. Please enter valid molecules.")
+        else:
             res = []
             bar = st.progress(0)
             for i, s in enumerate(mols):
@@ -144,22 +150,24 @@ with t1:
                     })
                 bar.progress((i + 1) / len(mols))
             
-            df_res = pd.DataFrame(res)
-            st.session_state['results'] = df_res
-            
-            c1_m, c2_m, c3_m = st.columns(3)
-            c1_m.metric("Molecules", len(df_res))
-            c2_m.metric("Potent Hits", len(df_res[df_res['Result'] == "ACTIVE"]))
-            c3_m.metric("Max Probability", f"{df_res['Inhibition Prob'].max():.2%}")
-            
-            st.write("---")
-            # hide_index=True removes the left index column
-            st.dataframe(
-                df_res.style.background_gradient(subset=['Inhibition Prob'], cmap='RdYlGn'), 
-                use_container_width=True,
-                hide_index=True
-            )
-            st.download_button("Export Results", df_res.to_csv(index=False), "NeuroBACE_Report.csv")
+            if res:
+                df_res = pd.DataFrame(res)
+                st.session_state['results'] = df_res
+                
+                c1_m, c2_m, c3_m = st.columns(3)
+                c1_m.metric("Molecules", len(df_res))
+                c2_m.metric("Potent Hits", len(df_res[df_res['Result'] == "ACTIVE"]))
+                c3_m.metric("Max Probability", f"{df_res['Inhibition Prob'].max():.2%}")
+                
+                st.write("---")
+                st.dataframe(
+                    df_res.style.background_gradient(subset=['Inhibition Prob'], cmap='RdYlGn'), 
+                    use_container_width=True,
+                    hide_index=True
+                )
+                st.download_button("Export Results", df_res.to_csv(index=False), "NeuroBACE_Report.csv")
+            else:
+                st.error("Prediction failed. Please check your SMILES input.")
 
 with t2:
     if 'results' in st.session_state:
@@ -184,7 +192,7 @@ with t2:
 with t3:
     st.write("### Platform Architecture")
     st.markdown("""
-    - **Architecture:** Optimized XGBoost Framework (Pickle Serialization)
+    - **Architecture:** Optimized XGBoost Framework (JSON Native)
     - **Optimization:** Bayesian Framework via Optuna
     - **Feature Extraction:** 2048-bit Morgan Fingerprints (Radius=2)
     - **Identification:** Internal Serial Naming (C-n)
