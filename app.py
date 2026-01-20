@@ -91,14 +91,13 @@ def load_model(model_path: str, mtime: float):
 model = load_model(str(MODEL_PATH), os.path.getmtime(str(MODEL_PATH)) if os.path.exists(str(MODEL_PATH)) else 0.0)
 
 # Load AD reference fingerprints (if file exists)
-ref_fps = load_reference_fps(str(BASE_DIR / TRAIN_REF_FILE))
+
 
 mfpgen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
-
 # --- APPLICABILITY DOMAIN (AD) HELPERS ---
 @st.cache_resource
 def load_reference_fps(ref_csv_path: str):
-    \"\"\"Load reference Morgan fingerprints for AD similarity (cached).\"\"\"
+    """Load reference Morgan fingerprints for AD similarity (cached)."""
     import os
     if not os.path.exists(ref_csv_path):
         return []
@@ -126,6 +125,8 @@ def max_tanimoto(query_fp_bv, ref_fps):
     return float(max(sims)) if sims else None
 
 
+# Load AD reference fingerprints (if file exists)
+ref_fps = load_reference_fps(str(BASE_DIR / TRAIN_REF_FILE))  # [] if missing
 # --- SCIENTIFIC HELPER FUNCTIONS ---
 def get_confidence_level(prob: float, thr: float) -> str:
     """Confidence based on distance from the operating threshold (thr)."""
