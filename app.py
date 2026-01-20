@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import xgboost as xgb
 import base64
-from rdkit import Chem
+from rdkit import Chem, DataStructs # Added DataStructs for explicit conversion
 from rdkit.Chem import AllChem
 from rdkit.Chem import rdFingerprintGenerator
 import plotly.express as px
@@ -49,9 +49,7 @@ st.markdown(f"""
 with st.sidebar:
     st.markdown("---")
     threshold = st.slider("Decision Threshold (Validation Optimized)", 0.0, 1.0, 0.70, 0.01)
-    
-    # Updated: Reverted to simple versioning
-    st.caption("v1.0") 
+    st.caption("v1.0")
 
 # --- PREDICTION ENGINE ---
 @st.cache_resource
@@ -90,7 +88,15 @@ def run_prediction(smiles):
             return None 
         mol = Chem.MolFromSmiles(smiles)
         if mol:
-            fp = mfpgen.GetFingerprintAsNumPy(mol)
+            # FIX FOR DEFICIENCY #6: Explicit Bit-Vector Generation
+            # 1. Generate Explicit Bit Vector (Strictly 0/1)
+            fp_bitvect = mfpgen.GetFingerprint(mol)
+            
+            # 2. Convert to NumPy Array securely
+            fp = np.zeros((0,), dtype=np.int8)
+            DataStructs.ConvertToNumpyArray(fp_bitvect, fp)
+            
+            # 3. Predict
             dmatrix = xgb.DMatrix(fp.reshape(1, -1))
             prediction = model.predict(dmatrix)
             prob = float(prediction[0])
@@ -238,7 +244,7 @@ with t3:
     st.write("### Platform Architecture")
     st.markdown("""
     - **Inference Engine:** XGBoost Framework (Native JSON Serialization)
-    - **Molecular Encoding:** RDKit MorganGenerator (Modern API)
+    - **Molecular Encoding:** RDKit MorganGenerator (Explicit Bit-Vector)
     - **Optimization:** Bayesian Hyperparameter Tuning via Optuna (Offline Training Phase)
     - **Scientific Validation:**
         - **Confidence Estimation:** Distance-to-boundary heuristic enabled.
