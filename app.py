@@ -394,12 +394,21 @@ with t2:
 with t3:
     st.write("### Platform Architecture")
     st.markdown("""
-    - **Inference Engine:** XGBoost Framework (Native JSON Serialization)
-    - **Processing:** Vectorized Batch Inference (High Performance)
-    - **Molecular Encoding:** RDKit MorganGenerator (Explicit Bit-Vector)
-    - **Optimization:** Bayesian Hyperparameter Tuning via Optuna (Offline Training Phase)
-    - **Scientific Validation:**
-        - **Confidence Estimation:** Distance-to-boundary heuristic enabled.
-        - **Applicability Domain:** Users are advised to verify structural similarity to the BACE1 training set (ChEMBL).
-    - **Identification:** Local Serial Nomenclature (C-n)
-    """)
+- **Inference Engine:** XGBoost binary classifier (native JSON serialization)
+- **Processing:** Vectorized batch inference for high-throughput screening
+- **Molecular Encoding:** RDKit Morgan fingerprints (radius 2, 2048-bit explicit bit vector)
+- **Optimization:** Bayesian hyperparameter tuning with Optuna (offline training phase)
+- **Scientific Validation:** Scaffold-split evaluation (multi-seed) and Y-randomization sanity check
+
+**Reliability Controls**
+- **Confidence Estimation:** Probability-margin heuristic based on \|P(active) − threshold\|
+- **Applicability Domain (AD):** Max Tanimoto similarity to the training reference set is reported (MaxSim)
+- **Abstain Policy (optional):** Abstain when (i) MaxSim < 0.40 or (ii) \|P(active) − threshold\| < 0.20
+
+**Labeling and Decision**
+- **Labeling (strict):** Active if pIC50 ≥ 7; Inactive if pIC50 ≤ 6; gray zone excluded (6 < pIC50 < 7)
+- **Operating Threshold:** Default 0.70 (user adjustable)
+
+**Identification**
+- **Local Serial Nomenclature:** C-n
+""")
