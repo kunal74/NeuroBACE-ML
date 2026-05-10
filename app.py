@@ -346,7 +346,7 @@ with t1:
                 if prob_col:
                     styled = (
                         df_res.style
-                        .applymap(traffic_light, subset=[prob_col])
+                        .map(traffic_light, subset=[prob_col])
                         .format({prob_col: "{:.4f}"})
                     )
                     st.dataframe(styled, use_container_width=True, hide_index=True)
